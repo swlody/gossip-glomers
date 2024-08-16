@@ -3,7 +3,7 @@ use std::io::{stdin, BufRead as _};
 use serde::{Deserialize, Deserializer, Serialize};
 
 #[derive(Copy, Clone, Debug)]
-enum NodeId {
+pub enum NodeId {
     Node(usize),
     Client(usize),
 }
@@ -38,30 +38,36 @@ impl<'de> Deserialize<'de> for NodeId {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-struct MaelstromMessage<T> {
+pub struct MaelstromMessage<T> {
     src: NodeId,
     dest: NodeId,
     body: Body<T>,
 }
 
+impl<T> MaelstromMessage<T> {
+    pub fn reply_with_payload<U: Serialize>(self, payload: U) -> MaelstromMessage<U> {
+        MaelstromMessage {
+            src: self.dest,
+            dest: self.src,
+            body: Body {
+                msg_id: self.body.msg_id,
+                in_reply_to: Some(self.body.msg_id),
+                payload,
+            },
+        }
+    }
+
+    pub fn payload(&self) -> &T {
+        &self.body.payload
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
-struct Body<T> {
+pub struct Body<T> {
     msg_id: usize,
     in_reply_to: Option<usize>,
     #[serde(flatten)]
     payload: T,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(tag = "type", rename = "echo")]
-struct Echo {
-    echo: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(tag = "type", rename = "echo_ok")]
-struct EchoOk {
-    echo: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -75,7 +81,7 @@ struct Init {
 #[serde(tag = "type", rename = "init_ok")]
 struct InitOk {}
 
-fn main() -> anyhow::Result<()> {
+pub fn run(cb: fn(String) -> anyhow::Result<String>) -> anyhow::Result<()> {
     let mut stdin = stdin().lock();
     let mut buffer = String::new();
     stdin.read_line(&mut buffer)?;
@@ -99,23 +105,8 @@ fn main() -> anyhow::Result<()> {
 
     for line in stdin.lines() {
         let line = line?;
-        let echo_msg = serde_json::from_str::<MaelstromMessage<Echo>>(&line)?;
-
-        let echo_response = MaelstromMessage {
-            src: our_node_id,
-            dest: echo_msg.src,
-            body: Body {
-                msg_id: current_msg_id,
-                in_reply_to: Some(echo_msg.body.msg_id),
-                payload: EchoOk {
-                    echo: echo_msg.body.payload.echo,
-                },
-            },
-        };
-
-        let echo_response_str = serde_json::to_string(&echo_response)?;
-        println!("{}", echo_response_str);
-
+        let response = cb(line)?;
+        println!("{}", response);
         current_msg_id += 1;
     }
 
