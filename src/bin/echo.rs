@@ -1,4 +1,4 @@
-use gossip_glomers::MaelstromMessage;
+use gossip_glomers::{error::Error, MaelstromMessage};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -13,15 +13,11 @@ struct EchoOk {
     echo: String,
 }
 
-fn cb(line: String) -> anyhow::Result<String> {
-    let echo_msg = serde_json::from_str::<MaelstromMessage<Echo>>(&line)?;
-    let echo = echo_msg.payload().echo.clone();
-
-    let echo_response = echo_msg.reply_with_payload(EchoOk { echo });
-
-    Ok(serde_json::to_string(&echo_response)?)
+fn echo_handler(request_msg: MaelstromMessage<Echo>) -> Result<MaelstromMessage<EchoOk>, Error> {
+    let echo = request_msg.payload().echo.clone();
+    Ok(request_msg.reply_with_payload(EchoOk { echo }))
 }
 
-fn main() -> anyhow::Result<()> {
-    gossip_glomers::run(cb)
+fn main() {
+    gossip_glomers::run(echo_handler);
 }

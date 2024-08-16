@@ -1,6 +1,10 @@
+pub mod error;
+
 use std::io::{stdin, BufRead as _};
 
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
+
+use crate::error::Error;
 
 #[derive(Copy, Clone, Debug)]
 pub enum NodeId {
@@ -81,12 +85,19 @@ struct Init {
 #[serde(tag = "type", rename = "init_ok")]
 struct InitOk {}
 
-pub fn run(cb: fn(String) -> anyhow::Result<String>) -> anyhow::Result<()> {
+pub fn run<RequestPayload: DeserializeOwned + Clone, ResponsePayload: Serialize>(
+    handler: fn(
+        MaelstromMessage<RequestPayload>,
+    ) -> Result<MaelstromMessage<ResponsePayload>, Error>,
+) {
     let mut stdin = stdin().lock();
     let mut buffer = String::new();
-    stdin.read_line(&mut buffer)?;
-    let init_msg = serde_json::from_str::<MaelstromMessage<Init>>(&buffer)?;
+    stdin.read_line(&mut buffer).unwrap();
+
+    let init_msg = serde_json::from_str::<MaelstromMessage<Init>>(&buffer).unwrap();
+
     let our_node_id = init_msg.body.payload.node_id;
+
     let mut current_msg_id = 1;
 
     let init_response = MaelstromMessage {
@@ -100,15 +111,29 @@ pub fn run(cb: fn(String) -> anyhow::Result<String>) -> anyhow::Result<()> {
     };
     current_msg_id += 1;
 
-    let init_response_str = serde_json::to_string(&init_response)?;
+    let init_response_str = serde_json::to_string(&init_response).unwrap();
     println!("{}", init_response_str);
 
     for line in stdin.lines() {
-        let line = line?;
-        let response = cb(line)?;
-        println!("{}", response);
+        let line = line.unwrap();
+        let request_msg = serde_json::from_str::<MaelstromMessage<RequestPayload>>(&line).unwrap();
+
+        // TODO avoid clone?
+        let response = handler(request_msg.clone());
+
+        match response {
+            Ok(response_msg) => {
+                let response_str = serde_json::to_string(&response_msg).unwrap();
+                println!("{}", response_str);
+            }
+            Err(err) => {
+                let error_msg = request_msg.reply_with_payload(err);
+                let error_str = serde_json::to_string(&error_msg).unwrap();
+                dbg!(&error_str);
+                println!("{}", error_str);
+            }
+        }
+
         current_msg_id += 1;
     }
-
-    Ok(())
 }
