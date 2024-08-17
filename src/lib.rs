@@ -60,22 +60,6 @@ pub struct MaelstromMessage<Payload> {
 }
 
 impl<T> MaelstromMessage<T> {
-    pub fn reply_with_payload<Payload: Serialize>(
-        &self,
-        sender: NodeId,
-        payload: Payload,
-    ) -> MaelstromMessage<Payload> {
-        MaelstromMessage {
-            src: sender,
-            dest: self.src,
-            body: Body {
-                msg_id: self.body.msg_id,
-                in_reply_to: Some(self.body.msg_id),
-                payload,
-            },
-        }
-    }
-
     pub fn payload(&self) -> &T {
         &self.body.payload
     }
@@ -110,35 +94,43 @@ pub struct Node<Context> {
 }
 
 impl<Context> Node<Context> {
-    pub fn reply<RequestPayload, ResponsePayload>(
+    fn send_impl<ResponsePayload>(
         &mut self,
-        source_message: &MaelstromMessage<RequestPayload>,
+        in_reply_to: Option<u64>,
+        dest: NodeId,
         payload: ResponsePayload,
     ) where
         ResponsePayload: Serialize,
     {
-        let response = source_message.reply_with_payload(self.id, payload);
+        let response = MaelstromMessage {
+            src: self.id,
+            dest,
+            body: Body {
+                msg_id: self.current_msg_id,
+                in_reply_to,
+                payload,
+            },
+        };
         let response = serde_json::to_string(&response).unwrap();
         println!("{response}");
         self.current_msg_id += 1;
+    }
+
+    pub fn reply<RequestPayload, ResponsePayload>(
+        &mut self,
+        source_msg: &MaelstromMessage<RequestPayload>,
+        payload: ResponsePayload,
+    ) where
+        ResponsePayload: Serialize,
+    {
+        self.send_impl(Some(source_msg.body.msg_id), source_msg.src, payload);
     }
 
     pub fn send<ResponsePayload>(&mut self, dest: NodeId, payload: ResponsePayload)
     where
         ResponsePayload: Serialize,
     {
-        let message = MaelstromMessage {
-            src: self.id.clone(),
-            dest,
-            body: Body {
-                msg_id: self.current_msg_id,
-                in_reply_to: None,
-                payload: payload,
-            },
-        };
-        let message = serde_json::to_string(&message).unwrap();
-        println!("{message}");
-        self.current_msg_id += 1;
+        self.send_impl(None, dest, payload);
     }
 }
 
