@@ -1,21 +1,23 @@
-use gossip_glomers::{error::Error, GuidNodeId};
+use gossip_glomers::{error::Error, MaelstromMessage, Node};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug)]
+#[serde(tag = "type", rename = "echo")]
 struct Echo {
     echo: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Clone, Debug)]
+#[serde(tag = "type", rename = "echo_ok")]
 struct EchoOk {
     echo: String,
 }
 
-fn echo_handler(echo_payload: &Echo, _: GuidNodeId) -> Result<EchoOk, Error> {
-    let echo = echo_payload.echo.clone();
+fn handler(echo_message: &MaelstromMessage<Echo>, _ctx: &mut Node<()>) -> Result<EchoOk, Error> {
+    let echo = echo_message.payload().echo.clone();
     Ok(EchoOk { echo })
 }
 
 fn main() {
-    gossip_glomers::run(echo_handler);
+    gossip_glomers::run(handler, ());
 }

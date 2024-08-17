@@ -1,23 +1,23 @@
-use gossip_glomers::{error::Error, GuidNodeId};
+use gossip_glomers::{error::Error, MaelstromMessage, Node};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug)]
 #[serde(tag = "type", rename = "generate")]
 struct Generate {}
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Clone, Debug)]
 #[serde(tag = "type", rename = "generate_ok")]
 struct GenerateOk {
     id: Uuid,
 }
 
-fn generate_handler(_: &Generate, node_id: GuidNodeId) -> Result<GenerateOk, Error> {
+fn handler(_: &MaelstromMessage<Generate>, ctx: &mut Node<()>) -> Result<GenerateOk, Error> {
     Ok(GenerateOk {
-        id: Uuid::now_v6(&node_id.0),
+        id: Uuid::now_v6(&ctx.guid_id),
     })
 }
 
 fn main() {
-    gossip_glomers::run(generate_handler);
+    gossip_glomers::run(handler, ());
 }
