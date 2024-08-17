@@ -13,11 +13,12 @@ struct EchoOk {
     echo: String,
 }
 
-fn handler(echo_message: &MaelstromMessage<Echo>, _ctx: &mut Node<()>) -> Result<EchoOk, Error> {
-    let echo = echo_message.payload().echo.clone();
-    Ok(EchoOk { echo })
+fn handler(echo_msg: &MaelstromMessage<Echo>, node: &mut Node<()>) -> Result<(), Error> {
+    let echo = echo_msg.payload().echo.clone();
+    node.reply(echo_msg, EchoOk { echo });
+    Ok(())
 }
 
 fn main() {
-    gossip_glomers::run(handler, ());
+    gossip_glomers::run::<_, _, EchoOk>(handler, ());
 }

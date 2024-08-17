@@ -12,12 +12,16 @@ struct GenerateOk {
     id: Uuid,
 }
 
-fn handler(_: &MaelstromMessage<Generate>, ctx: &mut Node<()>) -> Result<GenerateOk, Error> {
-    Ok(GenerateOk {
-        id: Uuid::now_v6(&ctx.guid_id),
-    })
+fn handler(generate_msg: &MaelstromMessage<Generate>, node: &mut Node<()>) -> Result<(), Error> {
+    node.reply(
+        &generate_msg,
+        GenerateOk {
+            id: Uuid::now_v6(&node.guid_id),
+        },
+    );
+    Ok(())
 }
 
 fn main() {
-    gossip_glomers::run(handler, ());
+    gossip_glomers::run::<_, _, GenerateOk>(handler, ());
 }

@@ -62,10 +62,11 @@ pub struct MaelstromMessage<Payload> {
 impl<T> MaelstromMessage<T> {
     pub fn reply_with_payload<Payload: Serialize>(
         &self,
+        sender: NodeId,
         payload: Payload,
     ) -> MaelstromMessage<Payload> {
         MaelstromMessage {
-            src: self.dest,
+            src: sender,
             dest: self.src,
             body: Body {
                 msg_id: self.body.msg_id,
@@ -108,11 +109,41 @@ pub struct Node<Context> {
     pub ctx: Context,
 }
 
+impl<Context> Node<Context> {
+    pub fn reply<RequestPayload, ResponsePayload>(
+        &mut self,
+        source_message: &MaelstromMessage<RequestPayload>,
+        payload: ResponsePayload,
+    ) where
+        ResponsePayload: Serialize,
+    {
+        let response = source_message.reply_with_payload(self.id, payload);
+        let response = serde_json::to_string(&response).unwrap();
+        println!("{response}");
+        self.current_msg_id += 1;
+    }
+
+    pub fn send<ResponsePayload>(&mut self, dest: NodeId, payload: ResponsePayload)
+    where
+        ResponsePayload: Serialize,
+    {
+        let message = MaelstromMessage {
+            src: self.id.clone(),
+            dest,
+            body: Body {
+                msg_id: self.current_msg_id,
+                in_reply_to: None,
+                payload: payload,
+            },
+        };
+        let message = serde_json::to_string(&message).unwrap();
+        println!("{message}");
+        self.current_msg_id += 1;
+    }
+}
+
 pub fn run<RequestPayload, Context, ResponsePayload>(
-    handler: fn(
-        &MaelstromMessage<RequestPayload>,
-        &mut Node<Context>,
-    ) -> Result<ResponsePayload, Error>,
+    handler: fn(&MaelstromMessage<RequestPayload>, &mut Node<Context>) -> Result<(), Error>,
     context: Context,
 ) where
     RequestPayload: DeserializeOwned,
@@ -123,48 +154,24 @@ pub fn run<RequestPayload, Context, ResponsePayload>(
 
     let init_msg = serde_json::from_str::<MaelstromMessage<Init>>(&buffer).unwrap();
 
-    let mut ctx = Node {
-        id: init_msg.body.payload.node_id,
+    let mut node = Node {
+        id: init_msg.body.payload.node_id.clone(),
         guid_id: node_id_to_guid_node_id(init_msg.body.payload.node_id),
-        network_ids: init_msg.body.payload.node_ids,
+        // TODO avoid clone
+        network_ids: init_msg.body.payload.node_ids.clone(),
         current_msg_id: 1,
         ctx: context,
     };
 
-    let init_response = MaelstromMessage {
-        src: init_msg.body.payload.node_id,
-        dest: init_msg.src,
-        body: Body {
-            msg_id: ctx.current_msg_id,
-            in_reply_to: Some(init_msg.body.msg_id),
-            payload: InitOk {},
-        },
-    };
-    ctx.current_msg_id += 1;
-
-    let init_response_str = serde_json::to_string(&init_response).unwrap();
-    println!("{init_response_str}");
+    node.reply(&init_msg, InitOk {});
 
     for line in stdin().lines() {
-        let line = line.unwrap();
         // TODO custom deserialization to proper error
-        let request_msg = serde_json::from_str::<MaelstromMessage<RequestPayload>>(&line).unwrap();
+        let request_msg =
+            serde_json::from_str::<MaelstromMessage<RequestPayload>>(&line.unwrap()).unwrap();
 
-        let response = handler(&request_msg, &mut ctx);
-
-        match response {
-            Ok(response_payload) => {
-                let response_msg = request_msg.reply_with_payload(response_payload);
-                let response_str = serde_json::to_string(&response_msg).unwrap();
-                println!("{response_str}");
-            }
-            Err(err) => {
-                let error_msg = request_msg.reply_with_payload(err);
-                let error_str = serde_json::to_string(&error_msg).unwrap();
-                println!("{error_str}");
-            }
+        if let Err(err) = handler(&request_msg, &mut node) {
+            node.reply(&request_msg, err);
         }
-
-        ctx.current_msg_id += 1;
     }
 }
