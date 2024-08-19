@@ -71,7 +71,7 @@ fn handler(
 }
 
 fn main() {
-    gossip_glomers::run::<_, _, ResponsePayload>(
+    gossip_glomers::run(
         handler,
         Context {
             seen_messages: HashSet::new(),

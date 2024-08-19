@@ -60,8 +60,8 @@ pub struct MaelstromMessage<Payload> {
     body: Body<Payload>,
 }
 
-impl<T> MaelstromMessage<T> {
-    pub fn payload(&self) -> &T {
+impl<Payload> MaelstromMessage<Payload> {
+    pub fn payload(&self) -> &Payload {
         &self.body.payload
     }
 }
@@ -133,12 +133,11 @@ impl Node {
     }
 }
 
-pub fn run<RequestPayload, Context, ResponsePayload>(
+pub fn run<RequestPayload, Context>(
     handler: fn(MaelstromMessage<RequestPayload>, &Node, &mut Context) -> Result<(), Error>,
     mut context: Context,
 ) where
     RequestPayload: DeserializeOwned,
-    ResponsePayload: Serialize,
 {
     let mut buffer = String::new();
     stdin().read_line(&mut buffer).unwrap();

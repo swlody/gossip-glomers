@@ -20,5 +20,5 @@ fn handler(echo_msg: MaelstromMessage<Echo>, node: &Node, _: &mut ()) -> Result<
 }
 
 fn main() {
-    gossip_glomers::run::<_, _, EchoOk>(handler, ());
+    gossip_glomers::run(handler, ());
 }

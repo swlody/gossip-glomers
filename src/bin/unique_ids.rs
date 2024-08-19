@@ -31,5 +31,5 @@ fn handler(generate_msg: MaelstromMessage<Generate>, node: &Node, _: &mut ()) ->
 }
 
 fn main() {
-    gossip_glomers::run::<_, _, GenerateOk>(handler, ());
+    gossip_glomers::run(handler, ());
 }
