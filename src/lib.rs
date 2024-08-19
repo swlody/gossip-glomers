@@ -147,7 +147,7 @@ pub fn run<RequestPayload, Context, ResponsePayload>(
     let node = Node {
         id: init_msg.body.payload.node_id,
         network_ids: init_msg.body.payload.node_ids,
-        current_msg_id: 1.into(),
+        current_msg_id: 0.into(),
     };
 
     node.send_impl(Some(init_msg.body.msg_id), init_msg.src, InitOk {});
