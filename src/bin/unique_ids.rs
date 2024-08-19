@@ -14,7 +14,7 @@ struct GenerateOk {
 
 fn handler(generate_msg: &MaelstromMessage<Generate>, node: &mut Node<()>) -> Result<(), Error> {
     node.reply(
-        &generate_msg,
+        generate_msg,
         GenerateOk {
             id: Uuid::now_v6(&node.guid_id),
         },

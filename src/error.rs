@@ -61,77 +61,77 @@ pub struct Error {
 
 #[allow(dead_code)]
 impl Error {
-    fn timeout(error_text: impl Into<String>) -> Self {
+    pub fn timeout(error_text: impl Into<String>) -> Self {
         Self {
             text: error_text.into(),
             error_type: ErrorType::Timeout,
         }
     }
 
-    fn node_not_found(error_text: impl Into<String>) -> Self {
+    pub fn node_not_found(error_text: impl Into<String>) -> Self {
         Self {
             text: error_text.into(),
             error_type: ErrorType::NodeNotFound,
         }
     }
 
-    fn not_supported(error_text: impl Into<String>) -> Self {
+    pub fn not_supported(error_text: impl Into<String>) -> Self {
         Self {
             text: error_text.into(),
             error_type: ErrorType::NotSupported,
         }
     }
 
-    fn temporarily_unavailable(error_text: impl Into<String>) -> Self {
+    pub fn temporarily_unavailable(error_text: impl Into<String>) -> Self {
         Self {
             text: error_text.into(),
             error_type: ErrorType::TemporarilyUnavailable,
         }
     }
 
-    fn malformed_request(error_text: impl Into<String>) -> Self {
+    pub fn malformed_request(error_text: impl Into<String>) -> Self {
         Self {
             text: error_text.into(),
             error_type: ErrorType::MalformedRequest,
         }
     }
 
-    fn crash(error_text: impl Into<String>) -> Self {
+    pub fn crash(error_text: impl Into<String>) -> Self {
         Self {
             text: error_text.into(),
             error_type: ErrorType::Crash,
         }
     }
 
-    fn abort(error_text: impl Into<String>) -> Self {
+    pub fn abort(error_text: impl Into<String>) -> Self {
         Self {
             text: error_text.into(),
             error_type: ErrorType::Abort,
         }
     }
 
-    fn key_does_not_exist(error_text: impl Into<String>) -> Self {
+    pub fn key_does_not_exist(error_text: impl Into<String>) -> Self {
         Self {
             text: error_text.into(),
             error_type: ErrorType::KeyDoesNotExist,
         }
     }
 
-    fn key_already_exists(error_text: impl Into<String>) -> Self {
+    pub fn key_already_exists(error_text: impl Into<String>) -> Self {
         Self {
             text: error_text.into(),
             error_type: ErrorType::KeyAlreadyExists,
         }
     }
 
-    fn precondition_failed(error_text: impl Into<String>) -> Self {
+    pub fn precondition_failed(error_text: impl Into<String>) -> Self {
         Self {
             text: error_text.into(),
             error_type: ErrorType::PreconditionFailed,
         }
     }
 
-    fn txn_conflict(error_text: impl Into<String>) -> Self {
+    pub fn txn_conflict(error_text: impl Into<String>) -> Self {
         Self {
             text: error_text.into(),
             error_type: ErrorType::TxnConflict,

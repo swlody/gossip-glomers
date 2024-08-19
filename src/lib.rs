@@ -147,7 +147,7 @@ pub fn run<RequestPayload, Context, ResponsePayload>(
     let init_msg = serde_json::from_str::<MaelstromMessage<Init>>(&buffer).unwrap();
 
     let mut node = Node {
-        id: init_msg.body.payload.node_id.clone(),
+        id: init_msg.body.payload.node_id,
         guid_id: node_id_to_guid_node_id(init_msg.body.payload.node_id),
         // TODO avoid clone
         network_ids: init_msg.body.payload.node_ids.clone(),
@@ -159,6 +159,8 @@ pub fn run<RequestPayload, Context, ResponsePayload>(
 
     for line in stdin().lines() {
         // TODO custom deserialization to proper error
+        // The problem with this is that if we fail to parse the message,
+        // we don't know who to respond to with an error!
         let request_msg =
             serde_json::from_str::<MaelstromMessage<RequestPayload>>(&line.unwrap()).unwrap();
 
