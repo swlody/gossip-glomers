@@ -39,7 +39,7 @@ fn gossip(node: &mut Node<Context>, message: u64) {
 }
 
 fn handler(
-    broadcast_msg: &MaelstromMessage<RequestPayload>,
+    broadcast_msg: MaelstromMessage<RequestPayload>,
     node: &mut Node<Context>,
 ) -> Result<(), Error> {
     match broadcast_msg.payload() {
