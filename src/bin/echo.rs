@@ -13,7 +13,7 @@ struct EchoOk {
     echo: String,
 }
 
-fn handler(echo_msg: MaelstromMessage<Echo>, node: &mut Node<()>) -> Result<(), Error> {
+fn handler(echo_msg: MaelstromMessage<Echo>, node: &Node, _: &mut ()) -> Result<(), Error> {
     let echo = echo_msg.payload().echo.clone();
     node.reply(echo_msg, EchoOk { echo });
     Ok(())

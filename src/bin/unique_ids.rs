@@ -19,7 +19,7 @@ fn node_id_to_guid_node_id(node_id: NodeId) -> [u8; 6] {
     array
 }
 
-fn handler(generate_msg: MaelstromMessage<Generate>, node: &mut Node<()>) -> Result<(), Error> {
+fn handler(generate_msg: MaelstromMessage<Generate>, node: &Node, _: &mut ()) -> Result<(), Error> {
     node.reply(
         generate_msg,
         GenerateOk {

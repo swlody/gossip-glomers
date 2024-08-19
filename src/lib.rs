@@ -1,6 +1,9 @@
 pub mod error;
 
-use std::io::stdin;
+use std::{
+    io::stdin,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 
@@ -82,17 +85,16 @@ struct Init {
 #[serde(tag = "type", rename = "init_ok")]
 struct InitOk {}
 
-#[derive(Clone, Debug)]
-pub struct Node<Context> {
+#[derive(Debug)]
+pub struct Node {
     pub id: NodeId,
     pub network_ids: Vec<NodeId>,
-    pub current_msg_id: u64,
-    pub ctx: Context,
+    pub current_msg_id: AtomicU64,
 }
 
-impl<Context> Node<Context> {
+impl Node {
     fn send_impl<ResponsePayload>(
-        &mut self,
+        &self,
         in_reply_to: Option<u64>,
         dest: NodeId,
         payload: ResponsePayload,
@@ -103,18 +105,18 @@ impl<Context> Node<Context> {
             src: self.id,
             dest,
             body: Body {
-                msg_id: self.current_msg_id,
+                msg_id: self.current_msg_id.load(Ordering::SeqCst),
                 in_reply_to,
                 payload,
             },
         };
         let response = serde_json::to_string(&response).unwrap();
         println!("{response}");
-        self.current_msg_id += 1;
+        self.current_msg_id.fetch_add(1, Ordering::SeqCst);
     }
 
     pub fn reply<RequestPayload, ResponsePayload>(
-        &mut self,
+        &self,
         source_msg: MaelstromMessage<RequestPayload>,
         payload: ResponsePayload,
     ) where
@@ -123,7 +125,7 @@ impl<Context> Node<Context> {
         self.send_impl(Some(source_msg.body.msg_id), source_msg.src, payload);
     }
 
-    pub fn send<ResponsePayload>(&mut self, dest: NodeId, payload: ResponsePayload)
+    pub fn send<ResponsePayload>(&self, dest: NodeId, payload: ResponsePayload)
     where
         ResponsePayload: Serialize,
     {
@@ -132,8 +134,8 @@ impl<Context> Node<Context> {
 }
 
 pub fn run<RequestPayload, Context, ResponsePayload>(
-    handler: fn(MaelstromMessage<RequestPayload>, &mut Node<Context>) -> Result<(), Error>,
-    context: Context,
+    handler: fn(MaelstromMessage<RequestPayload>, &Node, &mut Context) -> Result<(), Error>,
+    mut context: Context,
 ) where
     RequestPayload: DeserializeOwned,
     ResponsePayload: Serialize,
@@ -142,11 +144,10 @@ pub fn run<RequestPayload, Context, ResponsePayload>(
     stdin().read_line(&mut buffer).unwrap();
     let init_msg = serde_json::from_str::<MaelstromMessage<Init>>(&buffer).unwrap();
 
-    let mut node = Node {
+    let node = Node {
         id: init_msg.body.payload.node_id,
         network_ids: init_msg.body.payload.node_ids,
-        current_msg_id: 1,
-        ctx: context,
+        current_msg_id: 1.into(),
     };
 
     node.send_impl(Some(init_msg.body.msg_id), init_msg.src, InitOk {});
@@ -160,7 +161,7 @@ pub fn run<RequestPayload, Context, ResponsePayload>(
         let in_reply_to = request_msg.body.msg_id;
         let reply_dest = request_msg.src;
 
-        if let Err(err) = handler(request_msg, &mut node) {
+        if let Err(err) = handler(request_msg, &node, &mut context) {
             node.send_impl(Some(in_reply_to), reply_dest, err);
         }
     }

@@ -32,36 +32,37 @@ struct Context {
     neighbors: Vec<NodeId>,
 }
 
-fn gossip(node: &mut Node<Context>, message: u64) {
-    for i in 0..node.ctx.neighbors.len() {
-        node.send(node.ctx.neighbors[i], RequestPayload::Gossip { message });
+fn gossip(node: &Node, neighbors: &[NodeId], message: u64) {
+    for &neighbor in neighbors {
+        node.send(neighbor, RequestPayload::Gossip { message });
     }
 }
 
 fn handler(
     broadcast_msg: MaelstromMessage<RequestPayload>,
-    node: &mut Node<Context>,
+    node: &Node,
+    ctx: &mut Context,
 ) -> Result<(), Error> {
     match broadcast_msg.payload() {
         RequestPayload::Broadcast { message } => {
-            node.ctx.seen_messages.insert(*message);
-            gossip(node, *message);
+            ctx.seen_messages.insert(*message);
+            gossip(node, &ctx.neighbors, *message);
             node.reply(broadcast_msg, ResponsePayload::BroadcastOk);
         }
         RequestPayload::Gossip { message } => {
-            if node.ctx.seen_messages.insert(*message) {
-                gossip(node, *message);
+            if ctx.seen_messages.insert(*message) {
+                gossip(node, &ctx.neighbors, *message);
             }
         }
         RequestPayload::Read => node.reply(
             broadcast_msg,
             ResponsePayload::ReadOk {
                 // TODO zero copy?
-                messages: node.ctx.seen_messages.clone(),
+                messages: ctx.seen_messages.clone(),
             },
         ),
         RequestPayload::Topology { topology } => {
-            node.ctx.neighbors = topology.get(&node.id).unwrap().clone();
+            ctx.neighbors = topology.get(&node.id).unwrap().clone();
             node.reply(broadcast_msg, ResponsePayload::TopologyOk)
         }
     }
