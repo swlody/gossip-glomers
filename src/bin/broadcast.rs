@@ -1,6 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
-use gossip_glomers::{error::Error, MaelstromMessage, Node, NodeId};
+use gossip_glomers::{
+    error::{GlomerError, MaelstromError},
+    MaelstromMessage, Node, NodeId,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -32,26 +35,27 @@ struct Context {
     neighbors: Vec<NodeId>,
 }
 
-fn gossip(node: &Node, neighbors: &[NodeId], message: u64) {
+fn gossip(node: &Node, neighbors: &[NodeId], message: u64) -> Result<(), MaelstromError> {
     for &neighbor in neighbors {
-        node.send(neighbor, RequestPayload::Gossip { message });
+        node.send(neighbor, RequestPayload::Gossip { message })?;
     }
+    Ok(())
 }
 
 fn handler(
     broadcast_msg: MaelstromMessage<RequestPayload>,
     node: &Node,
     ctx: &mut Context,
-) -> Result<(), Error> {
+) -> Result<(), MaelstromError> {
     match broadcast_msg.payload() {
         RequestPayload::Broadcast { message } => {
             ctx.seen_messages.insert(*message);
-            gossip(node, &ctx.neighbors, *message);
-            node.reply(broadcast_msg, ResponsePayload::BroadcastOk);
+            gossip(node, &ctx.neighbors, *message)?;
+            node.reply(broadcast_msg, ResponsePayload::BroadcastOk)?
         }
         RequestPayload::Gossip { message } => {
             if ctx.seen_messages.insert(*message) {
-                gossip(node, &ctx.neighbors, *message);
+                gossip(node, &ctx.neighbors, *message)?;
             }
         }
         RequestPayload::Read => node.reply(
@@ -60,22 +64,25 @@ fn handler(
                 // TODO zero copy?
                 messages: ctx.seen_messages.clone(),
             },
-        ),
+        )?,
         RequestPayload::Topology { topology } => {
-            ctx.neighbors = topology.get(&node.id).unwrap().clone();
-            node.reply(broadcast_msg, ResponsePayload::TopologyOk)
+            ctx.neighbors = topology
+                .get(&node.id)
+                .ok_or_else(|| MaelstromError::node_not_found("Invalid node in topology"))?
+                .clone();
+            node.reply(broadcast_msg, ResponsePayload::TopologyOk)?;
         }
     }
 
     Ok(())
 }
 
-fn main() {
+fn main() -> Result<(), GlomerError> {
     gossip_glomers::run(
         handler,
         Context {
             seen_messages: HashSet::new(),
             neighbors: Vec::new(),
         },
-    );
+    )
 }

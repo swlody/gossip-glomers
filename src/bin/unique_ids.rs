@@ -1,4 +1,7 @@
-use gossip_glomers::{error::Error, MaelstromMessage, Node, NodeId};
+use gossip_glomers::{
+    error::{GlomerError, MaelstromError},
+    MaelstromMessage, Node, NodeId,
+};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -20,16 +23,20 @@ fn make_uuid(node_id: NodeId) -> Uuid {
     Uuid::now_v6(&[array[0], array[1], array[2], array[3], 0, 0])
 }
 
-fn handler(generate_msg: MaelstromMessage<Generate>, node: &Node, _: &mut ()) -> Result<(), Error> {
+fn handler(
+    generate_msg: MaelstromMessage<Generate>,
+    node: &Node,
+    _: &mut (),
+) -> Result<(), MaelstromError> {
     node.reply(
         generate_msg,
         GenerateOk {
             id: make_uuid(node.id),
         },
-    );
+    )?;
     Ok(())
 }
 
-fn main() {
-    gossip_glomers::run(handler, ());
+fn main() -> Result<(), GlomerError> {
+    gossip_glomers::run(handler, ())
 }
