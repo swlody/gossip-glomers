@@ -8,7 +8,7 @@ use std::{
     },
 };
 
-use error::GlomerError;
+use error::{GlomerError, MaelstromErrorType};
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 
 use crate::error::MaelstromError;
@@ -189,7 +189,16 @@ where
         let reply_dest = request_msg.src;
 
         if let Err(err) = handler.handle(request_msg) {
+            let error_type = err.error_type;
+            let error_string = err.to_string();
             node.send_impl(Some(in_reply_to), reply_dest, err)?;
+
+            match error_type {
+                MaelstromErrorType::Crash | MaelstromErrorType::Abort => {
+                    return Err(GlomerError::Abort(format!("Aborting with: {error_string}")))
+                }
+                _ => {}
+            }
         }
     }
 

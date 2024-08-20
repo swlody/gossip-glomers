@@ -9,11 +9,13 @@ pub enum GlomerError {
     Io(#[from] io::Error),
     #[error(transparent)]
     SerdeJson(#[from] serde_json::Error),
+    #[error("{0}")]
+    Abort(String),
 }
 
-#[derive(Error, Serialize, Deserialize, Clone, Debug)]
+#[derive(Error, Serialize, Deserialize, Copy, Clone, Debug)]
 #[serde(tag = "code")]
-enum MaelstromErrorType {
+pub enum MaelstromErrorType {
     #[serde(rename = "0")]
     #[error("Timeout")]
     Timeout,
@@ -63,10 +65,10 @@ enum MaelstromErrorType {
 #[serde(tag = "type", rename = "error")]
 #[error("Error: {error_type}: {text}")]
 pub struct MaelstromError {
-    text: String,
+    pub text: String,
     #[serde(flatten)]
     #[source]
-    error_type: MaelstromErrorType,
+    pub error_type: MaelstromErrorType,
 }
 
 impl From<GlomerError> for MaelstromError {
