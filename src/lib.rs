@@ -26,14 +26,16 @@ pub struct NodeId {
 }
 
 impl NodeId {
-    pub fn node(id: u32) -> Self {
+    #[must_use]
+    pub const fn node(id: u32) -> Self {
         Self {
             kind: NodeKind::Node,
             id,
         }
     }
 
-    pub fn client(id: u32) -> Self {
+    #[must_use]
+    pub const fn client(id: u32) -> Self {
         Self {
             kind: NodeKind::Client,
             id,
@@ -63,8 +65,8 @@ impl<'de> Deserialize<'de> for NodeId {
         let value = s[1..].parse::<u32>().map_err(serde::de::Error::custom)?;
 
         match prefix {
-            "c" => Ok(NodeId::client(value)),
-            "n" => Ok(NodeId::node(value)),
+            "c" => Ok(Self::client(value)),
+            "n" => Ok(Self::node(value)),
             _ => Err(serde::de::Error::custom("invalid sender prefix")),
         }
     }
@@ -78,7 +80,7 @@ pub struct MaelstromMessage<P> {
 }
 
 impl<P> MaelstromMessage<P> {
-    pub fn payload(&self) -> &P {
+    pub const fn payload(&self) -> &P {
         &self.body.payload
     }
 }
@@ -86,6 +88,7 @@ impl<P> MaelstromMessage<P> {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct Body<Payload> {
     msg_id: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
     in_reply_to: Option<u64>,
     #[serde(flatten)]
     payload: Payload,
@@ -135,7 +138,7 @@ impl Node {
 
     pub fn reply<RequestPayload, R>(
         &self,
-        source_msg: MaelstromMessage<RequestPayload>,
+        source_msg: &MaelstromMessage<RequestPayload>,
         payload: R,
     ) -> Result<(), GlomerError>
     where

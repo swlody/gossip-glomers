@@ -71,7 +71,7 @@ impl Handler<RequestPayload> for BroadcastHandler {
                 self.seen_messages.borrow_mut().insert(*message);
                 self.gossip(*message)?;
                 self.node
-                    .reply(broadcast_msg, ResponsePayload::BroadcastOk)?
+                    .reply(&broadcast_msg, ResponsePayload::BroadcastOk)?;
             }
             RequestPayload::Gossip { message } => {
                 if self.seen_messages.borrow_mut().insert(*message) {
@@ -79,7 +79,7 @@ impl Handler<RequestPayload> for BroadcastHandler {
                 }
             }
             RequestPayload::Read => self.node.reply(
-                broadcast_msg,
+                &broadcast_msg,
                 ResponsePayload::ReadOk {
                     // TODO zero copy?
                     messages: self.seen_messages.borrow().clone(),
@@ -97,7 +97,7 @@ impl Handler<RequestPayload> for BroadcastHandler {
                     )
                     .map_err(|_| MaelstromError::precondition_failed("Topology already set"))?;
                 self.node
-                    .reply(broadcast_msg, ResponsePayload::TopologyOk)?;
+                    .reply(&broadcast_msg, ResponsePayload::TopologyOk)?;
             }
         }
 

@@ -3,6 +3,7 @@ use std::io;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+#[allow(clippy::module_name_repetitions)]
 #[derive(Error, Debug)]
 pub enum GlomerError {
     #[error(transparent)]
@@ -61,6 +62,7 @@ pub enum MaelstromErrorType {
     TxnConflict,
 }
 
+#[allow(clippy::module_name_repetitions)]
 #[derive(Error, Serialize, Deserialize, Debug)]
 #[serde(tag = "type", rename = "error")]
 #[error("Error: {error_type}: {text}")]

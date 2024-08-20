@@ -26,7 +26,7 @@ impl Handler<Echo> for EchoHandler {
 
     fn handle(&self, echo_msg: MaelstromMessage<Echo>) -> Result<(), MaelstromError> {
         let echo = echo_msg.payload().echo.clone();
-        self.node.reply(echo_msg, EchoOk { echo })?;
+        self.node.reply(&echo_msg, EchoOk { echo })?;
         Ok(())
     }
 }
