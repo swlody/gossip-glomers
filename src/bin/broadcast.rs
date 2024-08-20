@@ -20,7 +20,10 @@ enum RequestPayload {
         topology: BTreeMap<NodeId, Vec<NodeId>>,
     },
     Gossip {
-        message: u64,
+        messages: BTreeSet<u64>,
+    },
+    GossipAck {
+        messages: BTreeSet<u64>,
     },
 }
 
@@ -31,17 +34,26 @@ enum ResponsePayload<'a> {
     BroadcastOk,
     ReadOk { messages: &'a BTreeSet<u64> },
     TopologyOk,
-    Gossip { message: u64 },
+    // TODO avoid copying types that are both sent and received
+    // TODO why is the formatting different here than above?
+    Gossip { messages: &'a BTreeSet<u64> },
+    GossipAck { messages: &'a BTreeSet<u64> },
 }
 
 struct BroadcastHandler {
     node: Node,
     seen_messages: RefCell<BTreeSet<u64>>,
     neighbors: OnceCell<Vec<NodeId>>,
+    unacked_messages: RefCell<BTreeMap<NodeId, BTreeSet<u64>>>,
 }
 
 impl BroadcastHandler {
-    fn gossip(&self, message: u64, source: Option<NodeId>) -> Result<(), MaelstromError> {
+    fn gossip(
+        &self,
+        messages: &BTreeSet<u64>,
+        source: Option<NodeId>,
+    ) -> Result<(), MaelstromError> {
+        let mut unacked_messages = self.unacked_messages.borrow_mut();
         for &neighbor in self
             .neighbors
             .get()
@@ -53,12 +65,19 @@ impl BroadcastHandler {
             .iter()
             // Don't gossip back to whichever node we received the gossip message from
             .filter(|&&n| match source {
-                Some(source) => n != source,
+                Some(source) => source != n,
                 None => true,
             })
         {
-            self.node
-                .send(neighbor, ResponsePayload::Gossip { message })?;
+            let neighbor_unacked = unacked_messages.get_mut(&neighbor).unwrap();
+            neighbor_unacked.extend(messages);
+
+            self.node.send(
+                neighbor,
+                ResponsePayload::Gossip {
+                    messages: neighbor_unacked,
+                },
+            )?;
         }
         Ok(())
     }
@@ -66,10 +85,16 @@ impl BroadcastHandler {
 
 impl Handler<RequestPayload> for BroadcastHandler {
     fn init(node: Node) -> Self {
+        let map = node
+            .network_ids
+            .iter()
+            .map(|&id| (id, BTreeSet::new()))
+            .collect::<BTreeMap<NodeId, BTreeSet<u64>>>();
         Self {
             node,
             seen_messages: RefCell::new(BTreeSet::new()),
             neighbors: OnceCell::new(),
+            unacked_messages: RefCell::new(map.clone()),
         }
     }
 
@@ -80,14 +105,22 @@ impl Handler<RequestPayload> for BroadcastHandler {
         match &broadcast_msg.body.payload {
             RequestPayload::Broadcast { message } => {
                 self.seen_messages.borrow_mut().insert(*message);
-                self.gossip(*message, None)?;
+                self.gossip(&BTreeSet::from([*message]), None)?;
                 self.node
                     .reply(&broadcast_msg, ResponsePayload::BroadcastOk)?;
             }
-            RequestPayload::Gossip { message } => {
-                if self.seen_messages.borrow_mut().insert(*message) {
-                    self.gossip(*message, Some(broadcast_msg.src))?;
-                }
+            RequestPayload::Gossip { messages } => {
+                self.node
+                    .reply(&broadcast_msg, ResponsePayload::GossipAck { messages })?;
+                self.seen_messages.borrow_mut().extend(messages);
+                self.gossip(messages, Some(broadcast_msg.src))?;
+            }
+            RequestPayload::GossipAck { messages } => {
+                self.unacked_messages
+                    .borrow_mut()
+                    .get_mut(&broadcast_msg.src)
+                    .unwrap()
+                    .retain(|m| !messages.contains(m));
             }
             RequestPayload::Read => {
                 self.node.reply(
