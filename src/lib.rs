@@ -14,16 +14,29 @@ use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 use crate::error::MaelstromError;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-pub enum NodeId {
-    Node(u32),
-    Client(u32),
+pub enum NodeKind {
+    Node,
+    Client,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub struct NodeId {
+    pub kind: NodeKind,
+    pub id: u32,
 }
 
 impl NodeId {
-    pub fn id(self) -> u32 {
-        match self {
-            Self::Node(id) => id,
-            Self::Client(id) => id,
+    pub fn node(id: u32) -> Self {
+        Self {
+            kind: NodeKind::Node,
+            id,
+        }
+    }
+
+    pub fn client(id: u32) -> Self {
+        Self {
+            kind: NodeKind::Client,
+            id,
         }
     }
 }
@@ -33,9 +46,9 @@ impl Serialize for NodeId {
     where
         S: serde::Serializer,
     {
-        match self {
-            Self::Node(id) => serializer.serialize_str(&format!("n{id}")),
-            Self::Client(id) => serializer.serialize_str(&format!("c{id}")),
+        match self.kind {
+            NodeKind::Node => serializer.serialize_str(&format!("n{}", self.id)),
+            NodeKind::Client => serializer.serialize_str(&format!("c{}", self.id)),
         }
     }
 }
@@ -50,8 +63,8 @@ impl<'de> Deserialize<'de> for NodeId {
         let value = s[1..].parse::<u32>().map_err(serde::de::Error::custom)?;
 
         match prefix {
-            "c" => Ok(Self::Client(value)),
-            "n" => Ok(Self::Node(value)),
+            "c" => Ok(NodeId::client(value)),
+            "n" => Ok(NodeId::node(value)),
             _ => Err(serde::de::Error::custom("invalid sender prefix")),
         }
     }
@@ -93,7 +106,7 @@ struct InitOk {}
 pub struct Node {
     pub id: NodeId,
     pub network_ids: Vec<NodeId>,
-    pub current_msg_id: Arc<AtomicU64>,
+    pub next_msg_id: Arc<AtomicU64>,
 }
 
 impl Node {
@@ -110,7 +123,7 @@ impl Node {
             src: self.id,
             dest,
             body: Body {
-                msg_id: self.current_msg_id.fetch_add(1, Ordering::Relaxed),
+                msg_id: self.next_msg_id.fetch_add(1, Ordering::Relaxed),
                 in_reply_to,
                 payload,
             },
@@ -159,7 +172,7 @@ where
     let node = Node {
         id: init_msg.body.payload.node_id,
         network_ids: init_msg.body.payload.node_ids,
-        current_msg_id: Arc::new(0.into()),
+        next_msg_id: Arc::new(0.into()),
     };
 
     node.send_impl(Some(init_msg.body.msg_id), init_msg.src, InitOk {})?;
@@ -167,10 +180,11 @@ where
     let handler = H::init(node.clone());
 
     for line in stdin().lines() {
+        let line = line?;
         // TODO custom deserialization to proper error
         // The problem with this is that if we fail to parse the message,
         // we don't know who to respond to with an error!
-        let request_msg = serde_json::from_str::<MaelstromMessage<P>>(&line?)?;
+        let request_msg = serde_json::from_str::<MaelstromMessage<P>>(&line)?;
         let in_reply_to = request_msg.body.msg_id;
         let reply_dest = request_msg.src;
 

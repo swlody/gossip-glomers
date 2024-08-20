@@ -19,7 +19,7 @@ fn make_uuid(node_id: NodeId) -> Uuid {
     // Uuid v6 expects 6 bytes for the node ID. We are assuming 4 bytes for our
     // NodeIDs, so the last 4 characters of the GUID will always be '0000'.
     // This optimizes down to a single mov on x86 :)
-    let array = node_id.id().to_le_bytes();
+    let array = node_id.id.to_le_bytes();
     Uuid::now_v6(&[array[0], array[1], array[2], array[3], 0, 0])
 }
 
