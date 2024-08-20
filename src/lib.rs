@@ -1,6 +1,7 @@
 pub mod error;
 
 use std::{
+    fmt::Display,
     io::stdin,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -9,17 +10,17 @@ use std::{
 };
 
 use error::{GlomerError, MaelstromErrorType};
-use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::error::MaelstromError;
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum NodeKind {
     Node,
     Client,
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct NodeId {
     pub kind: NodeKind,
     pub id: u32,
@@ -43,15 +44,21 @@ impl NodeId {
     }
 }
 
+impl Display for NodeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.kind {
+            NodeKind::Node => write!(f, "n{}", self.id),
+            NodeKind::Client => write!(f, "c{}", self.id),
+        }
+    }
+}
+
 impl Serialize for NodeId {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer,
+        S: Serializer,
     {
-        match self.kind {
-            NodeKind::Node => serializer.serialize_str(&format!("n{}", self.id)),
-            NodeKind::Client => serializer.serialize_str(&format!("c{}", self.id)),
-        }
+        serializer.serialize_str(&self.to_string())
     }
 }
 
@@ -74,24 +81,18 @@ impl<'de> Deserialize<'de> for NodeId {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct MaelstromMessage<P> {
-    src: NodeId,
-    dest: NodeId,
-    body: Body<P>,
-}
-
-impl<P> MaelstromMessage<P> {
-    pub const fn payload(&self) -> &P {
-        &self.body.payload
-    }
+    pub src: NodeId,
+    pub dest: NodeId,
+    pub body: Body<P>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-struct Body<Payload> {
-    msg_id: u64,
+pub struct Body<Payload> {
+    pub msg_id: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    in_reply_to: Option<u64>,
+    pub in_reply_to: Option<u64>,
     #[serde(flatten)]
-    payload: Payload,
+    pub payload: Payload,
 }
 
 #[derive(Deserialize, Clone, Debug)]

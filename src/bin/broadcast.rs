@@ -1,6 +1,6 @@
 use std::{
     cell::{OnceCell, RefCell},
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
 };
 
 use gossip_glomers::{
@@ -17,7 +17,7 @@ enum RequestPayload {
     },
     Read,
     Topology {
-        topology: HashMap<NodeId, Vec<NodeId>>,
+        topology: BTreeMap<NodeId, Vec<NodeId>>,
     },
     Gossip {
         message: u64,
@@ -27,15 +27,16 @@ enum RequestPayload {
 #[allow(clippy::enum_variant_names)]
 #[derive(Serialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
-enum ResponsePayload {
+enum ResponsePayload<'a> {
     BroadcastOk,
-    ReadOk { messages: HashSet<u64> },
+    ReadOk { messages: &'a BTreeSet<u64> },
     TopologyOk,
+    Gossip { message: u64 },
 }
 
 struct BroadcastHandler {
     node: Node,
-    seen_messages: RefCell<HashSet<u64>>,
+    seen_messages: RefCell<BTreeSet<u64>>,
     neighbors: OnceCell<Vec<NodeId>>,
 }
 
@@ -47,7 +48,7 @@ impl BroadcastHandler {
             )
         })? {
             self.node
-                .send(neighbor, RequestPayload::Gossip { message })?;
+                .send(neighbor, ResponsePayload::Gossip { message })?;
         }
         Ok(())
     }
@@ -57,7 +58,7 @@ impl Handler<RequestPayload> for BroadcastHandler {
     fn init(node: Node) -> Self {
         Self {
             node,
-            seen_messages: RefCell::new(HashSet::new()),
+            seen_messages: RefCell::new(BTreeSet::new()),
             neighbors: OnceCell::new(),
         }
     }
@@ -66,7 +67,7 @@ impl Handler<RequestPayload> for BroadcastHandler {
         &self,
         broadcast_msg: MaelstromMessage<RequestPayload>,
     ) -> Result<(), MaelstromError> {
-        match broadcast_msg.payload() {
+        match &broadcast_msg.body.payload {
             RequestPayload::Broadcast { message } => {
                 self.seen_messages.borrow_mut().insert(*message);
                 self.gossip(*message)?;
@@ -78,24 +79,23 @@ impl Handler<RequestPayload> for BroadcastHandler {
                     self.gossip(*message)?;
                 }
             }
-            RequestPayload::Read => self.node.reply(
-                &broadcast_msg,
-                ResponsePayload::ReadOk {
-                    // TODO zero copy?
-                    messages: self.seen_messages.borrow().clone(),
-                },
-            )?,
+            RequestPayload::Read => {
+                self.node.reply(
+                    &broadcast_msg,
+                    ResponsePayload::ReadOk {
+                        messages: &self.seen_messages.borrow(),
+                    },
+                )?;
+            }
             RequestPayload::Topology { topology } => {
+                let neighbors = topology
+                    .get(&self.node.id)
+                    .ok_or_else(|| MaelstromError::node_not_found("Invalid node in topology"))?
+                    .clone();
                 self.neighbors
-                    .set(
-                        topology
-                            .get(&self.node.id)
-                            .ok_or_else(|| {
-                                MaelstromError::node_not_found("Invalid node in topology")
-                            })?
-                            .clone(),
-                    )
+                    .set(neighbors)
                     .map_err(|_| MaelstromError::precondition_failed("Topology already set"))?;
+
                 self.node
                     .reply(&broadcast_msg, ResponsePayload::TopologyOk)?;
             }
