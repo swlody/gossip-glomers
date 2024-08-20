@@ -41,12 +41,22 @@ struct BroadcastHandler {
 }
 
 impl BroadcastHandler {
-    fn gossip(&self, message: u64) -> Result<(), MaelstromError> {
-        for &neighbor in self.neighbors.get().ok_or_else(|| {
-            MaelstromError::precondition_failed(
-                "Did not receive a topology message before a broadcast message",
-            )
-        })? {
+    fn gossip(&self, message: u64, source: Option<NodeId>) -> Result<(), MaelstromError> {
+        for &neighbor in self
+            .neighbors
+            .get()
+            .ok_or_else(|| {
+                MaelstromError::precondition_failed(
+                    "Did not receive a topology message before a broadcast message",
+                )
+            })?
+            .iter()
+            // Don't gossip back to whichever node we received the gossip message from
+            .filter(|&&n| match source {
+                Some(source) => n != source,
+                None => true,
+            })
+        {
             self.node
                 .send(neighbor, ResponsePayload::Gossip { message })?;
         }
@@ -70,13 +80,13 @@ impl Handler<RequestPayload> for BroadcastHandler {
         match &broadcast_msg.body.payload {
             RequestPayload::Broadcast { message } => {
                 self.seen_messages.borrow_mut().insert(*message);
-                self.gossip(*message)?;
+                self.gossip(*message, None)?;
                 self.node
                     .reply(&broadcast_msg, ResponsePayload::BroadcastOk)?;
             }
             RequestPayload::Gossip { message } => {
                 if self.seen_messages.borrow_mut().insert(*message) {
-                    self.gossip(*message)?;
+                    self.gossip(*message, Some(broadcast_msg.src))?;
                 }
             }
             RequestPayload::Read => {
