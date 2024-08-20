@@ -1,8 +1,11 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    cell::{OnceCell, RefCell},
+    collections::{HashMap, HashSet},
+};
 
 use gossip_glomers::{
     error::{GlomerError, MaelstromError},
-    MaelstromMessage, Node, NodeId,
+    Handler, MaelstromMessage, Node, NodeId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -30,59 +33,78 @@ enum ResponsePayload {
     TopologyOk,
 }
 
-struct Context {
-    seen_messages: HashSet<u64>,
-    neighbors: Vec<NodeId>,
+struct BroadcastHandler {
+    node: Node,
+    seen_messages: RefCell<HashSet<u64>>,
+    neighbors: OnceCell<Vec<NodeId>>,
 }
 
-fn gossip(node: &Node, neighbors: &[NodeId], message: u64) -> Result<(), MaelstromError> {
-    for &neighbor in neighbors {
-        node.send(neighbor, RequestPayload::Gossip { message })?;
-    }
-    Ok(())
-}
-
-fn handler(
-    broadcast_msg: MaelstromMessage<RequestPayload>,
-    node: &Node,
-    ctx: &mut Context,
-) -> Result<(), MaelstromError> {
-    match broadcast_msg.payload() {
-        RequestPayload::Broadcast { message } => {
-            ctx.seen_messages.insert(*message);
-            gossip(node, &ctx.neighbors, *message)?;
-            node.reply(broadcast_msg, ResponsePayload::BroadcastOk)?
+impl BroadcastHandler {
+    fn gossip(&self, message: u64) -> Result<(), MaelstromError> {
+        for &neighbor in self.neighbors.get().ok_or_else(|| {
+            MaelstromError::precondition_failed(
+                "Did not receive a topology message before a broadcast message",
+            )
+        })? {
+            self.node
+                .send(neighbor, RequestPayload::Gossip { message })?;
         }
-        RequestPayload::Gossip { message } => {
-            if ctx.seen_messages.insert(*message) {
-                gossip(node, &ctx.neighbors, *message)?;
+        Ok(())
+    }
+}
+
+impl Handler<RequestPayload> for BroadcastHandler {
+    fn init(node: Node) -> Self {
+        Self {
+            node,
+            seen_messages: RefCell::new(HashSet::new()),
+            neighbors: OnceCell::new(),
+        }
+    }
+
+    fn handle(
+        &self,
+        broadcast_msg: MaelstromMessage<RequestPayload>,
+    ) -> Result<(), MaelstromError> {
+        match broadcast_msg.payload() {
+            RequestPayload::Broadcast { message } => {
+                self.seen_messages.borrow_mut().insert(*message);
+                self.gossip(*message)?;
+                self.node
+                    .reply(broadcast_msg, ResponsePayload::BroadcastOk)?
+            }
+            RequestPayload::Gossip { message } => {
+                if self.seen_messages.borrow_mut().insert(*message) {
+                    self.gossip(*message)?;
+                }
+            }
+            RequestPayload::Read => self.node.reply(
+                broadcast_msg,
+                ResponsePayload::ReadOk {
+                    // TODO zero copy?
+                    messages: self.seen_messages.borrow().clone(),
+                },
+            )?,
+            RequestPayload::Topology { topology } => {
+                self.neighbors
+                    .set(
+                        topology
+                            .get(&self.node.id)
+                            .ok_or_else(|| {
+                                MaelstromError::node_not_found("Invalid node in topology")
+                            })?
+                            .clone(),
+                    )
+                    .map_err(|_| MaelstromError::precondition_failed("Topology already set"))?;
+                self.node
+                    .reply(broadcast_msg, ResponsePayload::TopologyOk)?;
             }
         }
-        RequestPayload::Read => node.reply(
-            broadcast_msg,
-            ResponsePayload::ReadOk {
-                // TODO zero copy?
-                messages: ctx.seen_messages.clone(),
-            },
-        )?,
-        RequestPayload::Topology { topology } => {
-            ctx.neighbors = topology
-                .get(&node.id)
-                .ok_or_else(|| MaelstromError::node_not_found("Invalid node in topology"))?
-                .clone();
-            node.reply(broadcast_msg, ResponsePayload::TopologyOk)?;
-        }
-    }
 
-    Ok(())
+        Ok(())
+    }
 }
 
 fn main() -> Result<(), GlomerError> {
-    gossip_glomers::run(
-        handler,
-        Context {
-            seen_messages: HashSet::new(),
-            neighbors: Vec::new(),
-        },
-    )
+    gossip_glomers::run::<RequestPayload, BroadcastHandler>()
 }

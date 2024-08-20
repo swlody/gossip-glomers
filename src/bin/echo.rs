@@ -1,6 +1,6 @@
 use gossip_glomers::{
     error::{GlomerError, MaelstromError},
-    MaelstromMessage, Node,
+    Handler, MaelstromMessage, Node,
 };
 use serde::{Deserialize, Serialize};
 
@@ -15,17 +15,22 @@ struct Echo {
 struct EchoOk {
     echo: String,
 }
+struct EchoHandler {
+    node: Node,
+}
 
-fn handler(
-    echo_msg: MaelstromMessage<Echo>,
-    node: &Node,
-    _: &mut (),
-) -> Result<(), MaelstromError> {
-    let echo = echo_msg.payload().echo.clone();
-    node.reply(echo_msg, EchoOk { echo })?;
-    Ok(())
+impl Handler<Echo> for EchoHandler {
+    fn init(node: Node) -> Self {
+        Self { node }
+    }
+
+    fn handle(&self, echo_msg: MaelstromMessage<Echo>) -> Result<(), MaelstromError> {
+        let echo = echo_msg.payload().echo.clone();
+        self.node.reply(echo_msg, EchoOk { echo })?;
+        Ok(())
+    }
 }
 
 fn main() -> Result<(), GlomerError> {
-    gossip_glomers::run(handler, ())
+    gossip_glomers::run::<Echo, EchoHandler>()
 }

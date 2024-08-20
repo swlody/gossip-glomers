@@ -2,7 +2,10 @@ pub mod error;
 
 use std::{
     io::stdin,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
 };
 
 use error::GlomerError;
@@ -55,14 +58,14 @@ impl<'de> Deserialize<'de> for NodeId {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct MaelstromMessage<Payload> {
+pub struct MaelstromMessage<P> {
     src: NodeId,
     dest: NodeId,
-    body: Body<Payload>,
+    body: Body<P>,
 }
 
-impl<Payload> MaelstromMessage<Payload> {
-    pub fn payload(&self) -> &Payload {
+impl<P> MaelstromMessage<P> {
+    pub fn payload(&self) -> &P {
         &self.body.payload
     }
 }
@@ -86,22 +89,22 @@ struct Init {
 #[serde(tag = "type", rename = "init_ok")]
 struct InitOk {}
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Node {
     pub id: NodeId,
     pub network_ids: Vec<NodeId>,
-    pub current_msg_id: AtomicU64,
+    pub current_msg_id: Arc<AtomicU64>,
 }
 
 impl Node {
-    fn send_impl<ResponsePayload>(
+    fn send_impl<R>(
         &self,
         in_reply_to: Option<u64>,
         dest: NodeId,
-        payload: ResponsePayload,
+        payload: R,
     ) -> Result<(), GlomerError>
     where
-        ResponsePayload: Serialize,
+        R: Serialize,
     {
         let response = MaelstromMessage {
             src: self.id,
@@ -117,39 +120,37 @@ impl Node {
         Ok(())
     }
 
-    pub fn reply<RequestPayload, ResponsePayload>(
+    pub fn reply<RequestPayload, R>(
         &self,
         source_msg: MaelstromMessage<RequestPayload>,
-        payload: ResponsePayload,
+        payload: R,
     ) -> Result<(), GlomerError>
     where
-        ResponsePayload: Serialize,
+        R: Serialize,
     {
         self.send_impl(Some(source_msg.body.msg_id), source_msg.src, payload)
     }
 
-    pub fn send<ResponsePayload>(
-        &self,
-        dest: NodeId,
-        payload: ResponsePayload,
-    ) -> Result<(), GlomerError>
+    pub fn send<R>(&self, dest: NodeId, payload: R) -> Result<(), GlomerError>
     where
-        ResponsePayload: Serialize,
+        R: Serialize,
     {
         self.send_impl(None, dest, payload)
     }
 }
 
-pub fn run<RequestPayload, Context>(
-    handler: fn(
-        MaelstromMessage<RequestPayload>,
-        &Node,
-        &mut Context,
-    ) -> Result<(), MaelstromError>,
-    mut context: Context,
-) -> Result<(), GlomerError>
+pub trait Handler<P> {
+    fn init(node: Node) -> Self;
+
+    fn handle(&self, msg: MaelstromMessage<P>) -> Result<(), MaelstromError>
+    where
+        P: DeserializeOwned;
+}
+
+pub fn run<P, H>() -> Result<(), GlomerError>
 where
-    RequestPayload: DeserializeOwned,
+    P: DeserializeOwned,
+    H: Handler<P>,
 {
     let mut buffer = String::new();
     stdin().read_line(&mut buffer)?;
@@ -158,20 +159,22 @@ where
     let node = Node {
         id: init_msg.body.payload.node_id,
         network_ids: init_msg.body.payload.node_ids,
-        current_msg_id: 0.into(),
+        current_msg_id: Arc::new(0.into()),
     };
 
     node.send_impl(Some(init_msg.body.msg_id), init_msg.src, InitOk {})?;
+
+    let handler = H::init(node.clone());
 
     for line in stdin().lines() {
         // TODO custom deserialization to proper error
         // The problem with this is that if we fail to parse the message,
         // we don't know who to respond to with an error!
-        let request_msg = serde_json::from_str::<MaelstromMessage<RequestPayload>>(&line?)?;
+        let request_msg = serde_json::from_str::<MaelstromMessage<P>>(&line?)?;
         let in_reply_to = request_msg.body.msg_id;
         let reply_dest = request_msg.src;
 
-        if let Err(err) = handler(request_msg, &node, &mut context) {
+        if let Err(err) = handler.handle(request_msg) {
             node.send_impl(Some(in_reply_to), reply_dest, err)?;
         }
     }
