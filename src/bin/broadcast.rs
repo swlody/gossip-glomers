@@ -9,7 +9,7 @@ use gossip_glomers::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum RequestPayload {
     Broadcast {
@@ -105,15 +105,20 @@ impl Handler<RequestPayload> for BroadcastHandler {
         match &broadcast_msg.body.payload {
             RequestPayload::Broadcast { message } => {
                 self.seen_messages.borrow_mut().insert(*message);
-                self.gossip(&BTreeSet::from([*message]), None)?;
                 self.node
                     .reply(&broadcast_msg, ResponsePayload::BroadcastOk)?;
+                self.gossip(&BTreeSet::from([*message]), None)?;
             }
             RequestPayload::Gossip { messages } => {
                 self.node
                     .reply(&broadcast_msg, ResponsePayload::GossipAck { messages })?;
-                self.seen_messages.borrow_mut().extend(messages);
-                self.gossip(messages, Some(broadcast_msg.src))?;
+                let mut seen_messages = self.seen_messages.borrow_mut();
+                let new_messages = messages
+                    .difference(&seen_messages)
+                    .copied()
+                    .collect::<BTreeSet<u64>>();
+                seen_messages.extend(new_messages.clone());
+                self.gossip(&new_messages, Some(broadcast_msg.src))?;
             }
             RequestPayload::GossipAck { messages } => {
                 self.unacked_messages
