@@ -143,11 +143,11 @@ impl<P> Node<P> {
         let mut msg_id = self.send_impl(None, dest, &payload)?;
         let (mut tx, mut rx) = oneshot::channel();
         self.response_map.lock().await.insert(msg_id, tx);
-        let mut timeout_interval = tokio::time::interval(tokio::time::Duration::from_millis(100));
+        let mut retry_interval = tokio::time::interval(tokio::time::Duration::from_millis(1000));
 
         loop {
             tokio::select! {
-                _ = timeout_interval.tick() => {
+                _ = retry_interval.tick() => {
                     let mut guard = self.response_map.lock().await;
                     guard.remove(&msg_id);
                     msg_id = self.send_impl(None, dest, &payload)?;
