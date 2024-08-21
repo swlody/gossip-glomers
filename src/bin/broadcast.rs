@@ -26,10 +26,11 @@ enum Payload {
 
     // Internal
     Gossip { message: u64 },
+    GossipOk,
 }
 
 struct BroadcastHandler {
-    node: Arc<Node>,
+    node: Arc<Node<Payload>>,
     seen_messages: RwLock<BTreeSet<u64>>,
     neighbors: OnceLock<Vec<NodeId>>,
 }
@@ -66,7 +67,7 @@ impl BroadcastHandler {
 //   - on response, continue
 
 impl Handler<Payload> for BroadcastHandler {
-    fn init(node: Arc<Node>) -> Self {
+    fn init(node: Arc<Node<Payload>>) -> Self {
         Self { node, seen_messages: RwLock::new(BTreeSet::new()), neighbors: OnceLock::new() }
     }
 
@@ -81,6 +82,7 @@ impl Handler<Payload> for BroadcastHandler {
                 if self.seen_messages.write().await.insert(*message) {
                     self.gossip(*message).await?;
                 }
+                self.node.reply(&broadcast_msg, Payload::GossipOk)?;
             }
             Payload::Read => {
                 self.node.reply(
@@ -99,7 +101,10 @@ impl Handler<Payload> for BroadcastHandler {
 
                 self.node.reply(&broadcast_msg, Payload::TopologyOk)?;
             }
-            Payload::BroadcastOk | Payload::ReadOk { .. } | Payload::TopologyOk => {
+            Payload::BroadcastOk
+            | Payload::ReadOk { .. }
+            | Payload::TopologyOk
+            | Payload::GossipOk => {
                 return Err(MaelstromError::not_supported("Unexpected message type"));
             }
         }

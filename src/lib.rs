@@ -1,6 +1,7 @@
 pub mod error;
 
 use std::{
+    collections::BTreeMap,
     fmt::{Debug, Display},
     io::stdin,
     sync::{
@@ -11,6 +12,7 @@ use std::{
 
 use error::{GlomerError, MaelstromErrorType};
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
+use tokio::sync::{oneshot, Mutex};
 
 use crate::error::MaelstromError;
 
@@ -101,13 +103,14 @@ struct Init {
 struct InitOk {}
 
 #[derive(Debug)]
-pub struct Node {
+pub struct Node<P> {
     pub id: NodeId,
     pub network_ids: Vec<NodeId>,
     pub next_msg_id: AtomicU64,
+    pub response_map: Mutex<BTreeMap<u64, oneshot::Sender<MaelstromMessage<P>>>>,
 }
 
-impl Node {
+impl<P> Node<P> {
     fn send_impl<R>(
         &self,
         in_reply_to: Option<u64>,
@@ -125,7 +128,7 @@ impl Node {
         Ok(msg_id)
     }
 
-    pub fn reply<P>(&self, source_msg: &MaelstromMessage<P>, payload: P) -> Result<(), GlomerError>
+    pub fn reply(&self, source_msg: &MaelstromMessage<P>, payload: P) -> Result<(), GlomerError>
     where
         P: Serialize,
     {
@@ -133,16 +136,34 @@ impl Node {
         Ok(())
     }
 
-    pub async fn send<P>(&self, dest: NodeId, payload: P) -> Result<u64, GlomerError>
+    pub async fn send(&self, dest: NodeId, payload: P) -> Result<MaelstromMessage<P>, GlomerError>
     where
         P: Serialize + DeserializeOwned,
     {
-        self.send_impl(None, dest, &payload)
+        let mut msg_id = self.send_impl(None, dest, &payload)?;
+        let (mut tx, mut rx) = oneshot::channel();
+        self.response_map.lock().await.insert(msg_id, tx);
+        let mut timeout_interval = tokio::time::interval(tokio::time::Duration::from_millis(100));
+
+        loop {
+            tokio::select! {
+                _ = timeout_interval.tick() => {
+                    let mut guard = self.response_map.lock().await;
+                    guard.remove(&msg_id);
+                    msg_id = self.send_impl(None, dest, &payload)?;
+                    (tx, rx) = oneshot::channel();
+                    guard.insert(msg_id, tx);
+                }
+                response = &mut rx => {
+                    return Ok(response?);
+                }
+            }
+        }
     }
 }
 
 pub trait Handler<P> {
-    fn init(node: Arc<Node>) -> Self;
+    fn init(node: Arc<Node<P>>) -> Self;
 
     fn handle(
         &self,
@@ -154,46 +175,53 @@ pub trait Handler<P> {
 
 pub async fn run<P, H>() -> Result<(), GlomerError>
 where
-    P: DeserializeOwned + Debug,
-    H: Handler<P>,
+    P: DeserializeOwned + Debug + Send + 'static,
+    H: Handler<P> + Send + Sync + 'static,
 {
     let mut buffer = String::new();
     stdin().read_line(&mut buffer)?;
-    let init_msg = serde_json::from_str::<MaelstromMessage<Init>>(&buffer)?;
+    let init_msg: MaelstromMessage<Init> = serde_json::from_str::<MaelstromMessage<Init>>(&buffer)?;
 
     let node = Arc::new(Node {
         id: init_msg.body.payload.node_id,
         network_ids: init_msg.body.payload.node_ids,
         next_msg_id: 0.into(),
+        response_map: Mutex::new(BTreeMap::new()),
     });
 
     node.send_impl(Some(init_msg.body.msg_id), init_msg.src, &InitOk {})?;
 
     let handler = Arc::new(H::init(node.clone()));
-
     for line in stdin().lines() {
-        let line = line?;
+        let line = line.unwrap();
         // TODO custom deserialization to proper error
         // The problem with this is that if we fail to parse the message,
         // we don't know who to respond to with an error!
-        let request_msg = serde_json::from_str::<MaelstromMessage<P>>(&line)?;
+        let request_msg = serde_json::from_str::<MaelstromMessage<P>>(&line).unwrap();
         let msg_id = request_msg.body.msg_id;
         let src = request_msg.src;
 
         let handler = handler.clone();
-        let res = handler.handle(request_msg).await;
-        if let Err(err) = res {
-            let error_type = err.error_type;
-            let error_string = err.to_string();
-            node.send_impl(Some(msg_id), src, &err)?;
-
-            match error_type {
-                MaelstromErrorType::Crash | MaelstromErrorType::Abort => {
-                    return Err(GlomerError::Abort(format!("Aborting with: {error_string}")))
+        let node = node.clone();
+        tokio::spawn(async move {
+            if let Some(in_reply_to) = request_msg.body.in_reply_to {
+                if let Some(tx) = node.response_map.lock().await.remove(&in_reply_to) {
+                    tx.send(request_msg).unwrap();
                 }
-                _ => {}
+            } else {
+                let res = handler.handle(request_msg).await;
+                if let Err(err) = res {
+                    let error_type = err.error_type;
+                    // let error_string: String = err.to_string();
+                    node.send_impl(Some(msg_id), src, &err).unwrap();
+
+                    match error_type {
+                        MaelstromErrorType::Crash | MaelstromErrorType::Abort => panic!("oops :p"),
+                        _ => {}
+                    }
+                }
             }
-        }
+        });
     }
 
     Ok(())

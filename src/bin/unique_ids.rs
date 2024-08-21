@@ -23,11 +23,11 @@ fn make_uuid(node_id: NodeId) -> Uuid {
 }
 
 struct UniqueIdHandler {
-    node: Arc<Node>,
+    node: Arc<Node<Payload>>,
 }
 
 impl Handler<Payload> for UniqueIdHandler {
-    fn init(node: Arc<Node>) -> Self {
+    fn init(node: Arc<Node<Payload>>) -> Self {
         Self { node }
     }
 
