@@ -29,18 +29,12 @@ pub struct NodeId {
 impl NodeId {
     #[must_use]
     pub const fn node(id: u32) -> Self {
-        Self {
-            kind: NodeKind::Node,
-            id,
-        }
+        Self { kind: NodeKind::Node, id }
     }
 
     #[must_use]
     pub const fn client(id: u32) -> Self {
-        Self {
-            kind: NodeKind::Client,
-            id,
-        }
+        Self { kind: NodeKind::Client, id }
     }
 }
 

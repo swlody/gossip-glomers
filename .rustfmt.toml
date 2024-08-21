@@ -1,5 +1,5 @@
 format_strings = true
 group_imports = "StdExternalCrate"
 imports_granularity = "Crate"
-use_small_heuristics = "Default"
+use_small_heuristics = "Max"
 wrap_comments = true

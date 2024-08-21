@@ -88,79 +88,46 @@ impl From<GlomerError> for MaelstromError {
 #[allow(dead_code)]
 impl MaelstromError {
     pub fn timeout(error_text: impl Into<String>) -> Self {
-        Self {
-            text: error_text.into(),
-            error_type: MaelstromErrorType::Timeout,
-        }
+        Self { text: error_text.into(), error_type: MaelstromErrorType::Timeout }
     }
 
     pub fn node_not_found(error_text: impl Into<String>) -> Self {
-        Self {
-            text: error_text.into(),
-            error_type: MaelstromErrorType::NodeNotFound,
-        }
+        Self { text: error_text.into(), error_type: MaelstromErrorType::NodeNotFound }
     }
 
     pub fn not_supported(error_text: impl Into<String>) -> Self {
-        Self {
-            text: error_text.into(),
-            error_type: MaelstromErrorType::NotSupported,
-        }
+        Self { text: error_text.into(), error_type: MaelstromErrorType::NotSupported }
     }
 
     pub fn temporarily_unavailable(error_text: impl Into<String>) -> Self {
-        Self {
-            text: error_text.into(),
-            error_type: MaelstromErrorType::TemporarilyUnavailable,
-        }
+        Self { text: error_text.into(), error_type: MaelstromErrorType::TemporarilyUnavailable }
     }
 
     pub fn malformed_request(error_text: impl Into<String>) -> Self {
-        Self {
-            text: error_text.into(),
-            error_type: MaelstromErrorType::MalformedRequest,
-        }
+        Self { text: error_text.into(), error_type: MaelstromErrorType::MalformedRequest }
     }
 
     pub fn crash(error_text: impl Into<String>) -> Self {
-        Self {
-            text: error_text.into(),
-            error_type: MaelstromErrorType::Crash,
-        }
+        Self { text: error_text.into(), error_type: MaelstromErrorType::Crash }
     }
 
     pub fn abort(error_text: impl Into<String>) -> Self {
-        Self {
-            text: error_text.into(),
-            error_type: MaelstromErrorType::Abort,
-        }
+        Self { text: error_text.into(), error_type: MaelstromErrorType::Abort }
     }
 
     pub fn key_does_not_exist(error_text: impl Into<String>) -> Self {
-        Self {
-            text: error_text.into(),
-            error_type: MaelstromErrorType::KeyDoesNotExist,
-        }
+        Self { text: error_text.into(), error_type: MaelstromErrorType::KeyDoesNotExist }
     }
 
     pub fn key_already_exists(error_text: impl Into<String>) -> Self {
-        Self {
-            text: error_text.into(),
-            error_type: MaelstromErrorType::KeyAlreadyExists,
-        }
+        Self { text: error_text.into(), error_type: MaelstromErrorType::KeyAlreadyExists }
     }
 
     pub fn precondition_failed(error_text: impl Into<String>) -> Self {
-        Self {
-            text: error_text.into(),
-            error_type: MaelstromErrorType::PreconditionFailed,
-        }
+        Self { text: error_text.into(), error_type: MaelstromErrorType::PreconditionFailed }
     }
 
     pub fn txn_conflict(error_text: impl Into<String>) -> Self {
-        Self {
-            text: error_text.into(),
-            error_type: MaelstromErrorType::TxnConflict,
-        }
+        Self { text: error_text.into(), error_type: MaelstromErrorType::TxnConflict }
     }
 }

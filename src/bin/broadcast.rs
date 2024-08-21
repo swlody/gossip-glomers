@@ -12,19 +12,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Deserialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum RequestPayload {
-    Broadcast {
-        message: u64,
-    },
+    Broadcast { message: u64 },
     Read,
-    Topology {
-        topology: BTreeMap<NodeId, Vec<NodeId>>,
-    },
-    Gossip {
-        messages: BTreeSet<u64>,
-    },
-    GossipAck {
-        messages: BTreeSet<u64>,
-    },
+    Topology { topology: BTreeMap<NodeId, Vec<NodeId>> },
+    Gossip { messages: BTreeSet<u64> },
+    GossipAck { messages: BTreeSet<u64> },
 }
 
 #[allow(clippy::enum_variant_names)]
@@ -35,7 +27,6 @@ enum ResponsePayload<'a> {
     ReadOk { messages: &'a BTreeSet<u64> },
     TopologyOk,
     // TODO avoid copying types that are both sent and received
-    // TODO why is the formatting different here than above?
     Gossip { messages: &'a BTreeSet<u64> },
     GossipAck { messages: &'a BTreeSet<u64> },
 }
@@ -72,12 +63,7 @@ impl BroadcastHandler {
             let neighbor_unacked = unacked_messages.get_mut(&neighbor).unwrap();
             neighbor_unacked.extend(messages);
 
-            self.node.send(
-                neighbor,
-                ResponsePayload::Gossip {
-                    messages: neighbor_unacked,
-                },
-            )?;
+            self.node.send(neighbor, ResponsePayload::Gossip { messages: neighbor_unacked })?;
         }
         Ok(())
     }
@@ -105,18 +91,14 @@ impl Handler<RequestPayload> for BroadcastHandler {
         match &broadcast_msg.body.payload {
             RequestPayload::Broadcast { message } => {
                 self.seen_messages.borrow_mut().insert(*message);
-                self.node
-                    .reply(&broadcast_msg, ResponsePayload::BroadcastOk)?;
+                self.node.reply(&broadcast_msg, ResponsePayload::BroadcastOk)?;
                 self.gossip(&BTreeSet::from([*message]), None)?;
             }
             RequestPayload::Gossip { messages } => {
-                self.node
-                    .reply(&broadcast_msg, ResponsePayload::GossipAck { messages })?;
+                self.node.reply(&broadcast_msg, ResponsePayload::GossipAck { messages })?;
                 let mut seen_messages = self.seen_messages.borrow_mut();
-                let new_messages = messages
-                    .difference(&seen_messages)
-                    .copied()
-                    .collect::<BTreeSet<u64>>();
+                let new_messages =
+                    messages.difference(&seen_messages).copied().collect::<BTreeSet<u64>>();
                 seen_messages.extend(new_messages.clone());
                 self.gossip(&new_messages, Some(broadcast_msg.src))?;
             }
@@ -130,9 +112,7 @@ impl Handler<RequestPayload> for BroadcastHandler {
             RequestPayload::Read => {
                 self.node.reply(
                     &broadcast_msg,
-                    ResponsePayload::ReadOk {
-                        messages: &self.seen_messages.borrow(),
-                    },
+                    ResponsePayload::ReadOk { messages: &self.seen_messages.borrow() },
                 )?;
             }
             RequestPayload::Topology { topology } => {
@@ -144,8 +124,7 @@ impl Handler<RequestPayload> for BroadcastHandler {
                     .set(neighbors)
                     .map_err(|_| MaelstromError::precondition_failed("Topology already set"))?;
 
-                self.node
-                    .reply(&broadcast_msg, ResponsePayload::TopologyOk)?;
+                self.node.reply(&broadcast_msg, ResponsePayload::TopologyOk)?;
             }
         }
 

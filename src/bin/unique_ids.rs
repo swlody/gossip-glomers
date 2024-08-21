@@ -33,12 +33,7 @@ impl Handler<Generate> for UniqueIdHandler {
     }
 
     fn handle(&self, generate_msg: MaelstromMessage<Generate>) -> Result<(), MaelstromError> {
-        self.node.reply(
-            &generate_msg,
-            GenerateOk {
-                id: make_uuid(self.node.id),
-            },
-        )?;
+        self.node.reply(&generate_msg, GenerateOk { id: make_uuid(self.node.id) })?;
         Ok(())
     }
 }
