@@ -1,6 +1,6 @@
 use std::{
-    cell::{OnceCell, RefCell},
     collections::{BTreeMap, BTreeSet},
+    sync::{Arc, OnceLock},
 };
 
 use gossip_glomers::{
@@ -8,34 +8,34 @@ use gossip_glomers::{
     Handler, MaelstromMessage, Node, NodeId,
 };
 use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
 
-#[derive(Deserialize, Clone, Debug)]
+// Requests from client
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
-enum RequestPayload {
+enum Payload {
+    // Client requests
     Broadcast { message: u64 },
     Read,
     Topology { topology: BTreeMap<NodeId, Vec<NodeId>> },
-    Gossip { message: u64 },
-}
 
-#[allow(clippy::enum_variant_names)]
-#[derive(Serialize, Clone, Debug)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum ResponsePayload<'a> {
+    // Client responses
     BroadcastOk,
-    ReadOk { messages: &'a BTreeSet<u64> },
+    ReadOk { messages: BTreeSet<u64> },
     TopologyOk,
+
+    // Internal
     Gossip { message: u64 },
 }
 
 struct BroadcastHandler {
-    node: Node,
-    seen_messages: RefCell<BTreeSet<u64>>,
-    neighbors: OnceCell<Vec<NodeId>>,
+    node: Arc<Node>,
+    seen_messages: RwLock<BTreeSet<u64>>,
+    neighbors: OnceLock<Vec<NodeId>>,
 }
 
 impl BroadcastHandler {
-    fn gossip(&self, message: u64) -> Result<(), MaelstromError> {
+    async fn gossip(&self, message: u64) -> Result<(), MaelstromError> {
         for &neighbor in self
             .neighbors
             .get()
@@ -46,39 +46,49 @@ impl BroadcastHandler {
             })?
             .iter()
         {
-            self.node.send(neighbor, ResponsePayload::Gossip { message })?;
+            self.node.send(neighbor, Payload::Gossip { message }).await?;
         }
         Ok(())
     }
 }
 
-impl Handler<RequestPayload> for BroadcastHandler {
-    fn init(node: Node) -> Self {
-        Self { node, seen_messages: RefCell::new(BTreeSet::new()), neighbors: OnceCell::new() }
+// send request
+// on send, register callback
+// automatically:
+//   - wait for response
+//   - if no response within timeout, resend
+//   - on response: callback
+
+// or:
+// on send, asynchronously
+//   - wait for response
+//   - if no response within timeout, resend
+//   - on response, continue
+
+impl Handler<Payload> for BroadcastHandler {
+    fn init(node: Arc<Node>) -> Self {
+        Self { node, seen_messages: RwLock::new(BTreeSet::new()), neighbors: OnceLock::new() }
     }
 
-    fn handle(
-        &self,
-        broadcast_msg: MaelstromMessage<RequestPayload>,
-    ) -> Result<(), MaelstromError> {
+    async fn handle(&self, broadcast_msg: MaelstromMessage<Payload>) -> Result<(), MaelstromError> {
         match &broadcast_msg.body.payload {
-            RequestPayload::Broadcast { message } => {
-                self.seen_messages.borrow_mut().insert(*message);
-                self.node.reply(&broadcast_msg, ResponsePayload::BroadcastOk)?;
-                self.gossip(*message)?;
+            Payload::Broadcast { message } => {
+                self.seen_messages.write().await.insert(*message);
+                self.node.reply(&broadcast_msg, Payload::BroadcastOk)?;
+                self.gossip(*message).await?;
             }
-            RequestPayload::Gossip { message } => {
-                if self.seen_messages.borrow_mut().insert(*message) {
-                    self.gossip(*message)?;
+            Payload::Gossip { message } => {
+                if self.seen_messages.write().await.insert(*message) {
+                    self.gossip(*message).await?;
                 }
             }
-            RequestPayload::Read => {
+            Payload::Read => {
                 self.node.reply(
                     &broadcast_msg,
-                    ResponsePayload::ReadOk { messages: &self.seen_messages.borrow() },
+                    Payload::ReadOk { messages: self.seen_messages.read().await.clone() },
                 )?;
             }
-            RequestPayload::Topology { topology } => {
+            Payload::Topology { topology } => {
                 let neighbors = topology
                     .get(&self.node.id)
                     .ok_or_else(|| MaelstromError::node_not_found("Invalid node in topology"))?
@@ -87,7 +97,10 @@ impl Handler<RequestPayload> for BroadcastHandler {
                     .set(neighbors)
                     .map_err(|_| MaelstromError::precondition_failed("Topology already set"))?;
 
-                self.node.reply(&broadcast_msg, ResponsePayload::TopologyOk)?;
+                self.node.reply(&broadcast_msg, Payload::TopologyOk)?;
+            }
+            Payload::BroadcastOk | Payload::ReadOk { .. } | Payload::TopologyOk => {
+                return Err(MaelstromError::not_supported("Unexpected message type"));
             }
         }
 
@@ -95,6 +108,7 @@ impl Handler<RequestPayload> for BroadcastHandler {
     }
 }
 
-fn main() -> Result<(), GlomerError> {
-    gossip_glomers::run::<RequestPayload, BroadcastHandler>()
+#[tokio::main]
+async fn main() -> Result<(), GlomerError> {
+    gossip_glomers::run::<Payload, BroadcastHandler>().await
 }

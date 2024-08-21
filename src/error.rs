@@ -2,6 +2,7 @@ use std::io;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tokio::sync::oneshot;
 
 #[allow(clippy::module_name_repetitions)]
 #[derive(Error, Debug)]
@@ -10,6 +11,8 @@ pub enum GlomerError {
     Io(#[from] io::Error),
     #[error(transparent)]
     SerdeJson(#[from] serde_json::Error),
+    #[error(transparent)]
+    RecvError(#[from] oneshot::error::RecvError),
     #[error("{0}")]
     Abort(String),
 }

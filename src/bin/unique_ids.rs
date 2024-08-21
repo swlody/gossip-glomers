@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use gossip_glomers::{
     error::{GlomerError, MaelstromError},
     Handler, MaelstromMessage, Node, NodeId,
@@ -5,14 +7,11 @@ use gossip_glomers::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Deserialize, Clone, Debug)]
-#[serde(tag = "type", rename = "generate")]
-struct Generate {}
-
-#[derive(Serialize, Clone, Debug)]
-#[serde(tag = "type", rename = "generate_ok")]
-struct GenerateOk {
-    id: Uuid,
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum Payload {
+    Generate,
+    GenerateOk { id: Uuid },
 }
 
 fn make_uuid(node_id: NodeId) -> Uuid {
@@ -24,20 +23,30 @@ fn make_uuid(node_id: NodeId) -> Uuid {
 }
 
 struct UniqueIdHandler {
-    node: Node,
+    node: Arc<Node>,
 }
 
-impl Handler<Generate> for UniqueIdHandler {
-    fn init(node: Node) -> Self {
+impl Handler<Payload> for UniqueIdHandler {
+    fn init(node: Arc<Node>) -> Self {
         Self { node }
     }
 
-    fn handle(&self, generate_msg: MaelstromMessage<Generate>) -> Result<(), MaelstromError> {
-        self.node.reply(&generate_msg, GenerateOk { id: make_uuid(self.node.id) })?;
+    async fn handle(&self, generate_msg: MaelstromMessage<Payload>) -> Result<(), MaelstromError> {
+        match &generate_msg.body.payload {
+            Payload::Generate => {
+                self.node
+                    .reply(&generate_msg, Payload::GenerateOk { id: make_uuid(self.node.id) })?;
+            }
+            Payload::GenerateOk { .. } => {
+                return Err(MaelstromError::not_supported("Invalid message type"));
+            }
+        }
+
         Ok(())
     }
 }
 
-fn main() -> Result<(), GlomerError> {
-    gossip_glomers::run::<Generate, UniqueIdHandler>()
+#[tokio::main]
+async fn main() -> Result<(), GlomerError> {
+    gossip_glomers::run::<Payload, UniqueIdHandler>().await
 }

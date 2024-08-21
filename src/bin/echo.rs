@@ -1,35 +1,42 @@
+use std::sync::Arc;
+
 use gossip_glomers::{
     error::{GlomerError, MaelstromError},
     Handler, MaelstromMessage, Node,
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize, Clone, Debug)]
-#[serde(tag = "type", rename = "echo")]
-struct Echo {
-    echo: String,
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum Payload {
+    Echo { echo: String },
+    EchoOk { echo: String },
 }
 
-#[derive(Serialize, Clone, Debug)]
-#[serde(tag = "type", rename = "echo_ok")]
-struct EchoOk<'a> {
-    echo: &'a str,
-}
 struct EchoHandler {
-    node: Node,
+    node: Arc<Node>,
 }
 
-impl Handler<Echo> for EchoHandler {
-    fn init(node: Node) -> Self {
+impl Handler<Payload> for EchoHandler {
+    fn init(node: Arc<Node>) -> Self {
         Self { node }
     }
 
-    fn handle(&self, echo_msg: MaelstromMessage<Echo>) -> Result<(), MaelstromError> {
-        self.node.reply(&echo_msg, EchoOk { echo: &echo_msg.body.payload.echo })?;
+    async fn handle(&self, echo_msg: MaelstromMessage<Payload>) -> Result<(), MaelstromError> {
+        match &echo_msg.body.payload {
+            Payload::Echo { echo } => {
+                self.node.reply(&echo_msg, Payload::EchoOk { echo: echo.to_string() })?;
+            }
+            Payload::EchoOk { .. } => {
+                return Err(MaelstromError::not_supported("Invalid message type"));
+            }
+        }
+
         Ok(())
     }
 }
 
-fn main() -> Result<(), GlomerError> {
-    gossip_glomers::run::<Echo, EchoHandler>()
+#[tokio::main]
+async fn main() -> Result<(), GlomerError> {
+    gossip_glomers::run::<Payload, EchoHandler>().await
 }

@@ -1,7 +1,7 @@
 pub mod error;
 
 use std::{
-    fmt::Display,
+    fmt::{Debug, Display},
     io::stdin,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -81,12 +81,12 @@ pub struct MaelstromMessage<P> {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Body<Payload> {
+pub struct Body<P> {
     pub msg_id: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub in_reply_to: Option<u64>,
     #[serde(flatten)]
-    pub payload: Payload,
+    pub payload: P,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -100,11 +100,11 @@ struct Init {
 #[serde(tag = "type", rename = "init_ok")]
 struct InitOk {}
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Node {
     pub id: NodeId,
     pub network_ids: Vec<NodeId>,
-    pub next_msg_id: Arc<AtomicU64>,
+    pub next_msg_id: AtomicU64,
 }
 
 impl Node {
@@ -112,70 +112,64 @@ impl Node {
         &self,
         in_reply_to: Option<u64>,
         dest: NodeId,
-        payload: R,
-    ) -> Result<(), GlomerError>
+        payload: &R,
+    ) -> Result<u64, GlomerError>
     where
         R: Serialize,
     {
-        let response = MaelstromMessage {
-            src: self.id,
-            dest,
-            body: Body {
-                msg_id: self.next_msg_id.fetch_add(1, Ordering::Relaxed),
-                in_reply_to,
-                payload,
-            },
-        };
+        let msg_id = self.next_msg_id.fetch_add(1, Ordering::Relaxed);
+        let response =
+            MaelstromMessage { src: self.id, dest, body: Body { msg_id, in_reply_to, payload } };
         let response = serde_json::to_string(&response)?;
         println!("{response}");
+        Ok(msg_id)
+    }
+
+    pub fn reply<P>(&self, source_msg: &MaelstromMessage<P>, payload: P) -> Result<(), GlomerError>
+    where
+        P: Serialize,
+    {
+        self.send_impl(Some(source_msg.body.msg_id), source_msg.src, &payload)?;
         Ok(())
     }
 
-    pub fn reply<RequestPayload, R>(
-        &self,
-        source_msg: &MaelstromMessage<RequestPayload>,
-        payload: R,
-    ) -> Result<(), GlomerError>
+    pub async fn send<P>(&self, dest: NodeId, payload: P) -> Result<u64, GlomerError>
     where
-        R: Serialize,
+        P: Serialize + DeserializeOwned,
     {
-        self.send_impl(Some(source_msg.body.msg_id), source_msg.src, payload)
-    }
-
-    pub fn send<R>(&self, dest: NodeId, payload: R) -> Result<(), GlomerError>
-    where
-        R: Serialize,
-    {
-        self.send_impl(None, dest, payload)
+        self.send_impl(None, dest, &payload)
     }
 }
 
 pub trait Handler<P> {
-    fn init(node: Node) -> Self;
+    fn init(node: Arc<Node>) -> Self;
 
-    fn handle(&self, msg: MaelstromMessage<P>) -> Result<(), MaelstromError>
+    fn handle(
+        &self,
+        msg: MaelstromMessage<P>,
+    ) -> impl std::future::Future<Output = Result<(), MaelstromError>> + Send
     where
         P: DeserializeOwned;
 }
 
-pub fn run<P, H>() -> Result<(), GlomerError>
+pub async fn run<P, H>() -> Result<(), GlomerError>
 where
-    P: DeserializeOwned,
+    P: DeserializeOwned + Debug,
     H: Handler<P>,
 {
     let mut buffer = String::new();
     stdin().read_line(&mut buffer)?;
     let init_msg = serde_json::from_str::<MaelstromMessage<Init>>(&buffer)?;
 
-    let node = Node {
+    let node = Arc::new(Node {
         id: init_msg.body.payload.node_id,
         network_ids: init_msg.body.payload.node_ids,
-        next_msg_id: Arc::new(0.into()),
-    };
+        next_msg_id: 0.into(),
+    });
 
-    node.send_impl(Some(init_msg.body.msg_id), init_msg.src, InitOk {})?;
+    node.send_impl(Some(init_msg.body.msg_id), init_msg.src, &InitOk {})?;
 
-    let handler = H::init(node.clone());
+    let handler = Arc::new(H::init(node.clone()));
 
     for line in stdin().lines() {
         let line = line?;
@@ -183,13 +177,15 @@ where
         // The problem with this is that if we fail to parse the message,
         // we don't know who to respond to with an error!
         let request_msg = serde_json::from_str::<MaelstromMessage<P>>(&line)?;
-        let in_reply_to = request_msg.body.msg_id;
-        let reply_dest = request_msg.src;
+        let msg_id = request_msg.body.msg_id;
+        let src = request_msg.src;
 
-        if let Err(err) = handler.handle(request_msg) {
+        let handler = handler.clone();
+        let res = handler.handle(request_msg).await;
+        if let Err(err) = res {
             let error_type = err.error_type;
             let error_string = err.to_string();
-            node.send_impl(Some(in_reply_to), reply_dest, err)?;
+            node.send_impl(Some(msg_id), src, &err)?;
 
             match error_type {
                 MaelstromErrorType::Crash | MaelstromErrorType::Abort => {
