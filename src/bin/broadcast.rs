@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::{Arc, OnceLock},
+    sync::{Arc, OnceLock, RwLock},
 };
 
 use gossip_glomers::{
@@ -8,7 +8,6 @@ use gossip_glomers::{
     Handler, MaelstromMessage, Node, NodeId,
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
 
 // Requests from client
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -53,19 +52,6 @@ impl BroadcastHandler {
     }
 }
 
-// send request
-// on send, register callback
-// automatically:
-//   - wait for response
-//   - if no response within timeout, resend
-//   - on response: callback
-
-// or:
-// on send, asynchronously
-//   - wait for response
-//   - if no response within timeout, resend
-//   - on response, continue
-
 impl Handler<Payload> for BroadcastHandler {
     fn init(node: Arc<Node<Payload>>) -> Self {
         Self { node, seen_messages: RwLock::new(BTreeSet::new()), neighbors: OnceLock::new() }
@@ -74,12 +60,12 @@ impl Handler<Payload> for BroadcastHandler {
     async fn handle(&self, broadcast_msg: MaelstromMessage<Payload>) -> Result<(), MaelstromError> {
         match &broadcast_msg.body.payload {
             Payload::Broadcast { message } => {
-                self.seen_messages.write().await.insert(*message);
+                self.seen_messages.write().unwrap().insert(*message);
                 self.node.reply(&broadcast_msg, Payload::BroadcastOk)?;
                 self.gossip(*message).await?;
             }
             Payload::Gossip { message } => {
-                if self.seen_messages.write().await.insert(*message) {
+                if self.seen_messages.write().unwrap().insert(*message) {
                     self.gossip(*message).await?;
                 }
                 self.node.reply(&broadcast_msg, Payload::GossipOk)?;
@@ -87,7 +73,7 @@ impl Handler<Payload> for BroadcastHandler {
             Payload::Read => {
                 self.node.reply(
                     &broadcast_msg,
-                    Payload::ReadOk { messages: self.seen_messages.read().await.clone() },
+                    Payload::ReadOk { messages: self.seen_messages.read().unwrap().clone() },
                 )?;
             }
             Payload::Topology { topology } => {

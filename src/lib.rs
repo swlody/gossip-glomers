@@ -6,13 +6,18 @@ use std::{
     io::stdin,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
 
 use error::{GlomerError, MaelstromErrorType};
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
-use tokio::sync::{oneshot, Mutex};
+use tokio::{
+    signal,
+    sync::oneshot,
+    time::{interval, Duration},
+};
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use crate::error::MaelstromError;
 
@@ -107,7 +112,7 @@ pub struct Node<P> {
     pub id: NodeId,
     pub network_ids: Vec<NodeId>,
     pub next_msg_id: AtomicU64,
-    pub response_map: Mutex<BTreeMap<u64, oneshot::Sender<MaelstromMessage<P>>>>,
+    response_map: Mutex<BTreeMap<u64, oneshot::Sender<MaelstromMessage<P>>>>,
 }
 
 impl<P> Node<P> {
@@ -142,17 +147,27 @@ impl<P> Node<P> {
     {
         let mut msg_id = self.send_impl(None, dest, &payload)?;
         let (mut tx, mut rx) = oneshot::channel();
-        self.response_map.lock().await.insert(msg_id, tx);
-        let mut retry_interval = tokio::time::interval(tokio::time::Duration::from_millis(1000));
+        self.response_map.lock().unwrap().insert(msg_id, tx);
+        let mut retry_interval = interval(Duration::from_millis(100));
+        // How many times to tick before retrying
+        let mut retry_tick_count = 0;
+        let mut ticks_since_last_retry = 0;
 
         loop {
             tokio::select! {
                 _ = retry_interval.tick() => {
-                    let mut guard = self.response_map.lock().await;
-                    guard.remove(&msg_id);
-                    msg_id = self.send_impl(None, dest, &payload)?;
-                    (tx, rx) = oneshot::channel();
-                    guard.insert(msg_id, tx);
+                    if ticks_since_last_retry == retry_tick_count {
+                        // Backoff, require one extra second for each retry
+                        retry_tick_count += 1;
+                        ticks_since_last_retry = 0;
+                        let mut guard = self.response_map.lock().unwrap();
+                        guard.remove(&msg_id);
+                        msg_id = self.send_impl(None, dest, &payload)?;
+                        (tx, rx) = oneshot::channel();
+                        guard.insert(msg_id, tx);
+                    } else {
+                        ticks_since_last_retry += 1;
+                    }
                 }
                 response = &mut rx => {
                     return Ok(response?);
@@ -191,9 +206,24 @@ where
 
     node.send_impl(Some(init_msg.body.msg_id), init_msg.src, &InitOk {})?;
 
+    let token = CancellationToken::new();
+    let cloned_token = token.clone();
+    let tracker = TaskTracker::new();
+    tracker.spawn(async move {
+        tokio::select! {
+            _ = signal::ctrl_c() => { cloned_token.cancel() }
+            _ = cloned_token.cancelled() => {}
+        }
+    });
+
+    let cloned_token = token.clone();
     let handler = Arc::new(H::init(node.clone()));
     for line in stdin().lines() {
-        let line = line.unwrap();
+        if cloned_token.is_cancelled() {
+            break;
+        }
+
+        let line = line?;
         // TODO custom deserialization to proper error
         // The problem with this is that if we fail to parse the message,
         // we don't know who to respond to with an error!
@@ -203,26 +233,36 @@ where
 
         let handler = handler.clone();
         let node = node.clone();
-        tokio::spawn(async move {
+        let cloned_token = token.clone();
+        tracker.spawn(async move {
             if let Some(in_reply_to) = request_msg.body.in_reply_to {
-                if let Some(tx) = node.response_map.lock().await.remove(&in_reply_to) {
+                if let Some(tx) = node.response_map.lock().unwrap().remove(&in_reply_to) {
                     tx.send(request_msg).unwrap();
                 }
             } else {
-                let res = handler.handle(request_msg).await;
+                let res = tokio::select! {
+                    res = handler.handle(request_msg) => res,
+                    _ = cloned_token.cancelled() => Ok(()),
+                };
+
                 if let Err(err) = res {
                     let error_type = err.error_type;
                     // let error_string: String = err.to_string();
                     node.send_impl(Some(msg_id), src, &err).unwrap();
 
                     match error_type {
-                        MaelstromErrorType::Crash | MaelstromErrorType::Abort => panic!("oops :p"),
+                        MaelstromErrorType::Crash | MaelstromErrorType::Abort => {
+                            panic!("Unrecoverable error: {}", err.text)
+                        }
                         _ => {}
                     }
                 }
             }
         });
     }
+
+    tracker.close();
+    tracker.wait().await;
 
     Ok(())
 }

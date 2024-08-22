@@ -1,3 +1,10 @@
+nemesis := ""
+nemesis_arg := if nemesis != "" {
+    "--nemesis " + nemesis
+} else {
+    ""
+}
+
 build bin:
     cargo build --bin {{bin}}
 
@@ -8,10 +15,7 @@ unique: (build "unique_ids")
     maelstrom test -w unique-ids --bin ./target/debug/unique_ids --time-limit 30 --rate 1000 --node-count 3 --availability total --nemesis partition --log-stderr
 
 broadcast nodes="1": (build "broadcast")
-    maelstrom test -w broadcast --bin ./target/debug/broadcast --node-count {{nodes}} --time-limit 20 --rate 10 --log-stderr
-
-partition: (build "broadcast")
-    maelstrom test -w broadcast --bin ./target/debug/broadcast --node-count 5 --time-limit 20 --rate 10 --nemesis partition --log-stderr
+    maelstrom test -w broadcast --bin ./target/debug/broadcast --node-count {{nodes}} --time-limit 20 --rate 10 {{nemesis_arg}} --log-stderr
 
 efficiency: (build "broadcast")
-    maelstrom test -w broadcast --bin ./target/debug/broadcast --node-count 25 --time-limit 20 --rate 100 --latency 100 --log-stderr
+    maelstrom test -w broadcast --bin ./target/debug/broadcast --node-count 25 --time-limit 20 --rate 100 --latency 100 {{nemesis_arg}} --log-stderr

@@ -15,6 +15,8 @@ pub enum GlomerError {
     RecvError(#[from] oneshot::error::RecvError),
     #[error("{0}")]
     Abort(String),
+    #[error("Operation timed out")]
+    Timeout,
 }
 
 #[derive(Error, Serialize, Deserialize, Copy, Clone, Debug)]
@@ -83,6 +85,7 @@ impl From<GlomerError> for MaelstromError {
                 io::ErrorKind::TimedOut => Self::timeout(error.to_string()),
                 _ => Self::crash(error.to_string()),
             },
+            GlomerError::Timeout => Self::timeout(error.to_string()),
             _ => Self::crash(error.to_string()),
         }
     }
