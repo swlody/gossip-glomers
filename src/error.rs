@@ -1,23 +1,5 @@
-use std::io;
-
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::oneshot;
-
-#[allow(clippy::module_name_repetitions)]
-#[derive(Error, Debug)]
-pub enum GlomerError {
-    #[error(transparent)]
-    Io(#[from] io::Error),
-    #[error(transparent)]
-    SerdeJson(#[from] serde_json::Error),
-    #[error(transparent)]
-    RecvError(#[from] oneshot::error::RecvError),
-    #[error("{0}")]
-    Abort(String),
-    #[error("Operation timed out")]
-    Timeout,
-}
 
 #[derive(Error, Serialize, Deserialize, Copy, Clone, Debug)]
 #[serde(tag = "code")]
@@ -76,19 +58,6 @@ pub struct MaelstromError {
     #[serde(flatten)]
     #[source]
     pub error_type: MaelstromErrorType,
-}
-
-impl From<GlomerError> for MaelstromError {
-    fn from(error: GlomerError) -> Self {
-        match error {
-            GlomerError::Io(error) => match error.kind() {
-                io::ErrorKind::TimedOut => Self::timeout(error.to_string()),
-                _ => Self::crash(error.to_string()),
-            },
-            GlomerError::Timeout => Self::timeout(error.to_string()),
-            _ => Self::crash(error.to_string()),
-        }
-    }
 }
 
 #[allow(dead_code)]

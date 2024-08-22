@@ -1,9 +1,6 @@
 use std::sync::Arc;
 
-use gossip_glomers::{
-    error::{GlomerError, MaelstromError},
-    Handler, MaelstromMessage, Node,
-};
+use gossip_glomers::{error::MaelstromError, Handler, MaelstromMessage, Node};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -37,6 +34,6 @@ impl Handler<Payload> for EchoHandler {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), GlomerError> {
+async fn main() -> eyre::Result<()> {
     gossip_glomers::run::<Payload, EchoHandler>().await
 }

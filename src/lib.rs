@@ -10,7 +10,7 @@ use std::{
     },
 };
 
-use error::{GlomerError, MaelstromErrorType};
+use error::MaelstromErrorType;
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
 use tokio::{
     signal,
@@ -121,19 +121,19 @@ impl<P> Node<P> {
         in_reply_to: Option<u64>,
         dest: NodeId,
         payload: &R,
-    ) -> Result<u64, GlomerError>
+    ) -> Result<u64, MaelstromError>
     where
         R: Serialize,
     {
         let msg_id = self.next_msg_id.fetch_add(1, Ordering::Relaxed);
         let response =
             MaelstromMessage { src: self.id, dest, body: Body { msg_id, in_reply_to, payload } };
-        let response = serde_json::to_string(&response)?;
+        let response = serde_json::to_string(&response).unwrap();
         println!("{response}");
         Ok(msg_id)
     }
 
-    pub fn reply(&self, source_msg: &MaelstromMessage<P>, payload: P) -> Result<(), GlomerError>
+    pub fn reply(&self, source_msg: &MaelstromMessage<P>, payload: P) -> Result<(), MaelstromError>
     where
         P: Serialize,
     {
@@ -141,7 +141,11 @@ impl<P> Node<P> {
         Ok(())
     }
 
-    pub async fn send(&self, dest: NodeId, payload: P) -> Result<MaelstromMessage<P>, GlomerError>
+    pub async fn send(
+        &self,
+        dest: NodeId,
+        payload: P,
+    ) -> Result<MaelstromMessage<P>, MaelstromError>
     where
         P: Serialize + DeserializeOwned,
     {
@@ -170,7 +174,7 @@ impl<P> Node<P> {
                     }
                 }
                 response = &mut rx => {
-                    return Ok(response?);
+                    return Ok(response.unwrap());
                 }
             }
         }
@@ -188,7 +192,7 @@ pub trait Handler<P> {
         P: DeserializeOwned;
 }
 
-pub async fn run<P, H>() -> Result<(), GlomerError>
+pub async fn run<P, H>() -> eyre::Result<()>
 where
     P: DeserializeOwned + Debug + Send + 'static,
     H: Handler<P> + Send + Sync + 'static,

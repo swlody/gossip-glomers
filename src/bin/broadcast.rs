@@ -3,10 +3,7 @@ use std::{
     sync::{Arc, OnceLock, RwLock},
 };
 
-use gossip_glomers::{
-    error::{GlomerError, MaelstromError},
-    Handler, MaelstromMessage, Node, NodeId,
-};
+use gossip_glomers::{error::MaelstromError, Handler, MaelstromMessage, Node, NodeId};
 use serde::{Deserialize, Serialize};
 
 // Requests from client
@@ -100,6 +97,6 @@ impl Handler<Payload> for BroadcastHandler {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), GlomerError> {
+async fn main() -> eyre::Result<()> {
     gossip_glomers::run::<Payload, BroadcastHandler>().await
 }

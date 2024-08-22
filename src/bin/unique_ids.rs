@@ -1,9 +1,6 @@
 use std::sync::Arc;
 
-use gossip_glomers::{
-    error::{GlomerError, MaelstromError},
-    Handler, MaelstromMessage, Node, NodeId,
-};
+use gossip_glomers::{error::MaelstromError, Handler, MaelstromMessage, Node, NodeId};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -47,6 +44,6 @@ impl Handler<Payload> for UniqueIdHandler {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), GlomerError> {
+async fn main() -> eyre::Result<()> {
     gossip_glomers::run::<Payload, UniqueIdHandler>().await
 }
