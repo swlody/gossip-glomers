@@ -1,6 +1,7 @@
 pub mod error;
 pub mod message;
 pub mod node;
+pub mod seq_kv_client;
 
 use std::{
     collections::BTreeMap,
