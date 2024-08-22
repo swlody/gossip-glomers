@@ -32,8 +32,8 @@ struct BroadcastHandler {
 }
 
 impl BroadcastHandler {
-    async fn gossip(&self, message: u64) -> Result<(), MaelstromError> {
-        for &neighbor in self
+    async fn gossip(&self, message: u64, src: Option<NodeId>) -> Result<(), MaelstromError> {
+        for neighbor in self
             .neighbors
             .get()
             .ok_or_else(|| {
@@ -42,8 +42,9 @@ impl BroadcastHandler {
                 )
             })?
             .iter()
+            .filter(|&&id| src.map_or(true, |src| id != src))
         {
-            self.node.send(neighbor, Payload::Gossip { message }).await?;
+            self.node.send(*neighbor, Payload::Gossip { message }).await?;
         }
         Ok(())
     }
@@ -59,13 +60,14 @@ impl Handler<Payload> for BroadcastHandler {
             Payload::Broadcast { message } => {
                 self.seen_messages.write().unwrap().insert(*message);
                 self.node.reply(&broadcast_msg, Payload::BroadcastOk)?;
-                self.gossip(*message).await?;
+                self.gossip(*message, None).await?;
             }
             Payload::Gossip { message } => {
-                if self.seen_messages.write().unwrap().insert(*message) {
-                    self.gossip(*message).await?;
-                }
+                let inserted = self.seen_messages.write().unwrap().insert(*message);
                 self.node.reply(&broadcast_msg, Payload::GossipOk)?;
+                if inserted {
+                    self.gossip(*message, Some(broadcast_msg.src)).await?;
+                }
             }
             Payload::Read => {
                 self.node.reply(

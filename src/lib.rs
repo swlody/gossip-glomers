@@ -5,7 +5,8 @@ pub mod node;
 use std::{
     collections::BTreeMap,
     fmt::Debug,
-    io::stdin,
+    future::Future,
+    io::{stdin, BufRead as _},
     sync::{Arc, Mutex},
 };
 
@@ -35,7 +36,7 @@ pub trait Handler<P> {
     fn handle(
         &self,
         msg: MaelstromMessage<P>,
-    ) -> impl std::future::Future<Output = Result<(), MaelstromError>> + Send
+    ) -> impl Future<Output = Result<(), MaelstromError>> + Send
     where
         P: DeserializeOwned;
 }
@@ -52,7 +53,7 @@ where
     let node = Arc::new(Node {
         id: init_msg.body.payload.node_id,
         network_ids: init_msg.body.payload.node_ids,
-        next_msg_id: 0.into(),
+        next_msg_id: Arc::new(0.into()),
         response_map: Mutex::new(BTreeMap::new()),
     });
 
@@ -70,7 +71,7 @@ where
 
     let cloned_token = token.clone();
     let handler = Arc::new(H::init(node.clone()));
-    for line in stdin().lines() {
+    for line in stdin().lock().lines() {
         if cloned_token.is_cancelled() {
             break;
         }
@@ -113,6 +114,7 @@ where
         });
     }
 
+    token.cancel();
     tracker.close();
     tracker.wait().await;
 

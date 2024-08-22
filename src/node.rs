@@ -2,7 +2,7 @@ use std::{
     collections::BTreeMap,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Mutex,
+        Arc, Mutex,
     },
 };
 
@@ -21,7 +21,7 @@ use crate::{
 pub struct Node<P> {
     pub id: NodeId,
     pub network_ids: Vec<NodeId>,
-    pub next_msg_id: AtomicU64,
+    pub next_msg_id: Arc<AtomicU64>,
     pub(super) response_map: Mutex<BTreeMap<u64, oneshot::Sender<MaelstromMessage<P>>>>,
 }
 
@@ -61,13 +61,13 @@ impl<P> Node<P> {
         Ok(())
     }
 
-    pub(super) async fn send_generic_dest<R>(
+    pub(super) async fn send_generic_dest(
         &self,
         dest: String,
-        payload: R,
+        payload: P,
     ) -> Result<MaelstromMessage<P>, MaelstromError>
     where
-        R: Serialize,
+        P: Serialize,
     {
         let mut msg_id = self.send_impl(None, dest.to_string(), &payload)?;
         let (mut tx, mut rx) = oneshot::channel();
