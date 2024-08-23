@@ -20,13 +20,19 @@ use crate::{
 
 #[derive(Debug)]
 pub struct Node<P> {
+    // Out NodeId
     pub id: NodeId,
+    // Other nodes in the network
     pub network_ids: Vec<NodeId>,
+    // Monotonically increasing message id
     pub next_msg_id: Arc<AtomicU64>,
     pub cancellation_token: CancellationToken,
+    // Mapping from msg_id to channel on which to send response
     pub(super) response_map: Mutex<BTreeMap<u64, oneshot::Sender<MaelstromMessage<P>>>>,
 }
 
+// Same as MaelstromMessage but String for dest instead of NodeId.
+// For interacting wtih Maelstrom services.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct GenericDestinationMaelstromMessage<P> {
     src: NodeId,
@@ -73,7 +79,9 @@ impl<P> Node<P> {
         P: Serialize,
     {
         let msg_id = self.send_impl(None, dest.to_string(), &payload)?;
+        // Set up channel to receive respone
         let (tx, rx) = oneshot::channel();
+        // Store sender on map with msg_id
         self.response_map.lock().unwrap().insert(msg_id, tx);
 
         if let Some(timeout_duration) = timeout_duration {

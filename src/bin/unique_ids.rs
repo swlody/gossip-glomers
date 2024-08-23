@@ -16,6 +16,8 @@ fn make_uuid(node_id: NodeId) -> Uuid {
     // NodeIDs, so the last 4 characters of the GUID will always be '0000'.
     // This optimizes down to a single mov on x86 :)
     let array = node_id.id.to_le_bytes();
+    // Use UUID v6 for unique ID. It uses current timestamp and NodeID
+    // for input, so it is guaranteed to be unique per message per node.
     Uuid::now_v6(&[array[0], array[1], array[2], array[3], 0, 0])
 }
 
