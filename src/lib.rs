@@ -36,9 +36,6 @@ struct InitOk {}
 
 // Handler trait - user needs to impl these methods to handle messages
 pub trait Handler<P> {
-    // Allow user to store node in their state to respond to/send messages
-    fn init(node: Node) -> Self;
-
     // Handle a message - should return () on success otherwise Err(MaelstromError)
     fn handle(
         &self,
@@ -48,14 +45,7 @@ pub trait Handler<P> {
         P: DeserializeOwned;
 }
 
-// Main process loop - initializes node then reads messages from stdin in a loop
-// Will automatically respond to requests with formatted error on handle() error
-pub async fn run<P, H>() -> eyre::Result<()>
-where
-    P: DeserializeOwned + Debug + Send + Sync + 'static,
-    H: Handler<P> + Send + Sync + 'static,
-{
-    // Initialization
+pub async fn init() -> eyre::Result<Node> {
     let mut buffer = String::new();
     stdin().read_line(&mut buffer)?;
     let init_msg: MaelstromMessage<Init> = serde_json::from_str::<MaelstromMessage<Init>>(&buffer)?;
@@ -70,9 +60,21 @@ where
     // Let maelstrom know that we are initialized
     node.send_impl(Some(init_msg.body.msg_id), init_msg.src.to_string(), &InitOk {})?;
 
+    Ok(node)
+}
+
+// Main process loop - initializes node then reads messages from stdin in a loop
+// Will automatically respond to requests with formatted error on handle() error
+pub async fn run<P, H>(node: &Node, handler: H) -> eyre::Result<()>
+where
+    P: DeserializeOwned + Debug + Send + Sync + 'static,
+    H: Handler<P> + Send + Sync + 'static,
+{
+    // Initialization
+
     let tracker = TaskTracker::new();
     // Initialize the user's handler, store in Arc to clone for each request
-    let handler = Arc::new(H::init(node.clone()));
+    let handler = Arc::new(handler);
     for line in stdin().lock().lines() {
         let line = line?;
         // Deserialize message from input

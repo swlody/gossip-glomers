@@ -30,10 +30,6 @@ struct UniqueIdHandler {
 }
 
 impl Handler<RequestPayload> for UniqueIdHandler {
-    fn init(node: Node) -> Self {
-        Self { node }
-    }
-
     async fn handle(
         &self,
         generate_msg: MaelstromMessage<RequestPayload>,
@@ -53,5 +49,7 @@ impl Handler<RequestPayload> for UniqueIdHandler {
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    gossip_glomers::run::<RequestPayload, UniqueIdHandler>().await
+    let node = gossip_glomers::init().await?;
+    let handler = UniqueIdHandler { node: node.clone() };
+    gossip_glomers::run(&node, handler).await
 }

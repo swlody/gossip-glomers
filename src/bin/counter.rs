@@ -23,10 +23,6 @@ struct CounterHandler {
 }
 
 impl Handler<RequestPayload> for CounterHandler {
-    fn init(node: Node) -> Self {
-        Self { node: node.clone(), client: SeqKvClient::new(node) }
-    }
-
     async fn handle(
         &self,
         counter_msg: MaelstromMessage<RequestPayload>,
@@ -47,5 +43,8 @@ impl Handler<RequestPayload> for CounterHandler {
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    gossip_glomers::run::<RequestPayload, CounterHandler>().await
+    let node = gossip_glomers::init().await?;
+    let handler = CounterHandler { node: node.clone(), client: SeqKvClient::new(node.clone()) };
+    handler.client.write("val".to_string(), "0".to_string()).await?;
+    gossip_glomers::run(&node, handler).await
 }

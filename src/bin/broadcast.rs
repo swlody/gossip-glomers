@@ -25,6 +25,7 @@ enum RequestPayload {
     Gossip { message: u64 },
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ResponsePayload {
@@ -103,10 +104,6 @@ impl BroadcastHandler {
 }
 
 impl Handler<RequestPayload> for BroadcastHandler {
-    fn init(node: Node) -> Self {
-        Self { node, seen_messages: RwLock::new(BTreeSet::new()), neighbors: OnceLock::new() }
-    }
-
     async fn handle(
         &self,
         broadcast_msg: MaelstromMessage<RequestPayload>,
@@ -160,5 +157,11 @@ impl Handler<RequestPayload> for BroadcastHandler {
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    gossip_glomers::run::<RequestPayload, BroadcastHandler>().await
+    let node = gossip_glomers::init().await?;
+    let handler = BroadcastHandler {
+        node: node.clone(),
+        seen_messages: RwLock::new(BTreeSet::new()),
+        neighbors: OnceLock::new(),
+    };
+    gossip_glomers::run(&node, handler).await
 }

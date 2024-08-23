@@ -19,10 +19,6 @@ struct EchoHandler {
 }
 
 impl Handler<RequestPayload> for EchoHandler {
-    fn init(node: Node) -> Self {
-        Self { node }
-    }
-
     async fn handle(
         &self,
         echo_msg: MaelstromMessage<RequestPayload>,
@@ -39,5 +35,7 @@ impl Handler<RequestPayload> for EchoHandler {
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    gossip_glomers::run::<RequestPayload, EchoHandler>().await
+    let node = gossip_glomers::init().await?;
+    let handler = EchoHandler { node: node.clone() };
+    gossip_glomers::run(&node, handler).await
 }

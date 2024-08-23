@@ -4,7 +4,6 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use tokio::time::Duration;
 
 use crate::{error::MaelstromError, node::Node};
 
@@ -16,6 +15,7 @@ enum RequestPayload {
     CompareAndSwap { key: String, from: String, to: String, create_if_not_exists: bool },
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Deserialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ResponsePayload {
@@ -48,11 +48,7 @@ impl SeqKvClient {
         // Issue a read reqeust to seq-kv service and return the response
         let response = self
             .node
-            .send_generic_dest(
-                "seq-kv".to_owned(),
-                RequestPayload::Read { key },
-                Some(Duration::from_millis(500)),
-            )
+            .send_generic_dest("seq-kv".to_owned(), RequestPayload::Read { key }, None)
             .await?;
         match response.body.payload {
             ResponsePayload::ReadOk { value } => Ok(value),
@@ -63,11 +59,7 @@ impl SeqKvClient {
     pub async fn read_int(&self, key: String) -> Result<i64, MaelstromError> {
         let response = self
             .node
-            .send_generic_dest(
-                "seq-kv".to_owned(),
-                RequestPayload::Read { key },
-                Some(Duration::from_millis(500)),
-            )
+            .send_generic_dest("seq-kv".to_owned(), RequestPayload::Read { key }, None)
             .await?;
         match response.body.payload {
             ResponsePayload::ReadOk { value } => Ok(value.parse().unwrap()),
@@ -78,11 +70,7 @@ impl SeqKvClient {
     pub async fn write(&self, key: String, value: String) -> Result<(), MaelstromError> {
         let response = self
             .node
-            .send_generic_dest(
-                "seq-kv".to_owned(),
-                RequestPayload::Write { key, value },
-                Some(Duration::from_millis(500)),
-            )
+            .send_generic_dest("seq-kv".to_owned(), RequestPayload::Write { key, value }, None)
             .await?;
         match response.body.payload {
             ResponsePayload::WriteOk => Ok(()),
@@ -102,7 +90,7 @@ impl SeqKvClient {
             .send_generic_dest(
                 "seq-kv".to_owned(),
                 RequestPayload::CompareAndSwap { key, from, to, create_if_not_exists },
-                Some(Duration::from_millis(500)),
+                None,
             )
             .await?;
         match response.body.payload {
