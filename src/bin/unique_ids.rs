@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use gossip_glomers::{error::MaelstromError, Handler, MaelstromMessage, Node, NodeId};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -22,11 +20,11 @@ fn make_uuid(node_id: NodeId) -> Uuid {
 }
 
 struct UniqueIdHandler {
-    node: Arc<Node>,
+    node: Node,
 }
 
 impl Handler<Payload> for UniqueIdHandler {
-    fn init(node: Arc<Node>) -> Self {
+    fn init(node: Node) -> Self {
         Self { node }
     }
 

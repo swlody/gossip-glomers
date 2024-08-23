@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, sync::Mutex};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+};
 
 use serde::{Deserialize, Serialize};
 use tokio::time::Duration;
@@ -19,19 +22,20 @@ enum SeqKvPayload {
 
 // A client needs a new node templated on the message protocol
 // for the Maelstrom seq-kv service
+#[derive(Clone)]
 pub struct SeqKvClient {
     node: Node,
 }
 
 impl SeqKvClient {
-    pub fn new(node: &Node) -> Self {
+    pub fn new(node: Node) -> Self {
         Self {
             node: Node {
                 id: node.id,
-                network_ids: node.network_ids.clone(),
-                next_msg_id: node.next_msg_id.clone(),
-                cancellation_token: node.cancellation_token.clone(),
-                response_map: Mutex::new(BTreeMap::new()),
+                network_ids: node.network_ids,
+                next_msg_id: node.next_msg_id,
+                cancellation_token: node.cancellation_token,
+                response_map: Arc::new(Mutex::new(BTreeMap::new())),
             },
         }
     }

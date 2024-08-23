@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::{Arc, OnceLock, RwLock},
+    sync::{OnceLock, RwLock},
 };
 
 use gossip_glomers::{
@@ -31,7 +31,7 @@ enum Payload {
 }
 
 struct BroadcastHandler {
-    node: Arc<Node>,
+    node: Node,
     seen_messages: RwLock<BTreeSet<u64>>,
     neighbors: OnceLock<Vec<NodeId>>,
 }
@@ -88,7 +88,7 @@ impl BroadcastHandler {
 }
 
 impl Handler<Payload> for BroadcastHandler {
-    fn init(node: Arc<Node>) -> Self {
+    fn init(node: Node) -> Self {
         Self { node, seen_messages: RwLock::new(BTreeSet::new()), neighbors: OnceLock::new() }
     }
 

@@ -1,5 +1,4 @@
 use std::{
-    any::Any,
     collections::BTreeMap,
     fmt::Debug,
     sync::{
@@ -8,7 +7,7 @@ use std::{
     },
 };
 
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::{
     sync::oneshot,
     time::{timeout, Duration},
@@ -20,18 +19,17 @@ use crate::{
     message::{Body, MaelstromMessage, NodeId},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Node {
     // Out NodeId
     pub id: NodeId,
     // Other nodes in the network
-    pub network_ids: Vec<NodeId>,
+    pub network_ids: Arc<Vec<NodeId>>,
     // Monotonically increasing message id
     pub next_msg_id: Arc<AtomicU64>,
     pub cancellation_token: CancellationToken,
     // Mapping from msg_id to channel on which to send response
-    pub(super) response_map:
-        Mutex<BTreeMap<u64, oneshot::Sender<Box<dyn Any + Send + Sync + 'static>>>>,
+    pub(super) response_map: Arc<Mutex<BTreeMap<u64, oneshot::Sender<String>>>>,
 }
 
 // Same as MaelstromMessage but String for dest instead of NodeId.
@@ -76,6 +74,7 @@ impl Node {
         Ok(())
     }
 
+    // TODO go back to separate request/response types?
     pub(super) async fn send_generic_dest<P>(
         &self,
         dest: String,
@@ -83,7 +82,7 @@ impl Node {
         timeout_duration: Option<Duration>,
     ) -> Result<MaelstromMessage<P>, MaelstromError>
     where
-        P: Serialize + Send + Sync + 'static,
+        P: Serialize + DeserializeOwned + Send + Sync + 'static,
     {
         let msg_id = self.send_impl(None, dest.to_string(), &payload)?;
         // Set up channel to receive respone
@@ -102,12 +101,12 @@ impl Node {
                             self.response_map.lock().unwrap().remove(&msg_id);
                             Err(MaelstromError::timeout("Timed out waiting for response"))
                         }
-                        Ok(response) => Ok(Box::into_inner(response.unwrap().downcast::<MaelstromMessage<P>>().unwrap()))
+                        Ok(response) => Ok(serde_json::from_str::<MaelstromMessage<P>>(&response.unwrap()).unwrap()),
                     }
                 }
             }
         } else {
-            Ok(Box::into_inner(rx.await.unwrap().downcast::<MaelstromMessage<P>>().unwrap()))
+            Ok(serde_json::from_str::<MaelstromMessage<P>>(&rx.await.unwrap()).unwrap())
         }
     }
 
@@ -118,7 +117,7 @@ impl Node {
         timeout: Option<Duration>,
     ) -> Result<MaelstromMessage<P>, MaelstromError>
     where
-        P: Serialize + Send + Sync + 'static,
+        P: Serialize + DeserializeOwned + Send + Sync + 'static,
     {
         self.send_generic_dest(dest.to_string(), payload, timeout).await
     }

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use gossip_glomers::{
     error::MaelstromError, seq_kv_client::SeqKvClient, Handler, MaelstromMessage, Node,
 };
@@ -16,13 +14,13 @@ enum Payload {
 }
 
 struct CounterHandler {
-    node: Arc<Node>,
-    client: Arc<SeqKvClient>,
+    node: Node,
+    client: SeqKvClient,
 }
 
 impl Handler<Payload> for CounterHandler {
-    fn init(node: Arc<Node>) -> Self {
-        Self { node: node.clone(), client: Arc::new(SeqKvClient::new(&node)) }
+    fn init(node: Node) -> Self {
+        Self { node: node.clone(), client: SeqKvClient::new(node) }
     }
 
     async fn handle(&self, counter_msg: MaelstromMessage<Payload>) -> Result<(), MaelstromError> {
