@@ -8,13 +8,17 @@ use tokio::time::Duration;
 
 use crate::{error::MaelstromError, node::Node};
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
-enum SeqKvPayload {
+enum RequestPayload {
     Read { key: String },
     Write { key: String, value: String },
     CompareAndSwap { key: String, from: String, to: String, create_if_not_exists: bool },
+}
 
+#[derive(Deserialize, Clone, Debug)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum ResponsePayload {
     ReadOk { value: String },
     WriteOk,
     CompareAndSwapOk,
@@ -46,12 +50,12 @@ impl SeqKvClient {
             .node
             .send_generic_dest(
                 "seq-kv".to_owned(),
-                SeqKvPayload::Read { key },
+                RequestPayload::Read { key },
                 Some(Duration::from_millis(500)),
             )
             .await?;
         match response.body.payload {
-            SeqKvPayload::ReadOk { value } => Ok(value),
+            ResponsePayload::ReadOk { value } => Ok(value),
             _ => Err(MaelstromError::not_supported("Invalid response type")),
         }
     }
@@ -61,25 +65,29 @@ impl SeqKvClient {
             .node
             .send_generic_dest(
                 "seq-kv".to_owned(),
-                SeqKvPayload::Read { key },
+                RequestPayload::Read { key },
                 Some(Duration::from_millis(500)),
             )
             .await?;
         match response.body.payload {
-            SeqKvPayload::ReadOk { value } => Ok(value.parse().unwrap()),
+            ResponsePayload::ReadOk { value } => Ok(value.parse().unwrap()),
             _ => Err(MaelstromError::not_supported("Invalid response type")),
         }
     }
 
     pub async fn write(&self, key: String, value: String) -> Result<(), MaelstromError> {
-        self.node
+        let response = self
+            .node
             .send_generic_dest(
                 "seq-kv".to_owned(),
-                SeqKvPayload::Write { key, value },
+                RequestPayload::Write { key, value },
                 Some(Duration::from_millis(500)),
             )
             .await?;
-        Ok(())
+        match response.body.payload {
+            ResponsePayload::WriteOk => Ok(()),
+            _ => Err(MaelstromError::not_supported("Invalid response type")),
+        }
     }
 
     pub async fn compare_and_swap(
@@ -89,13 +97,17 @@ impl SeqKvClient {
         to: String,
         create_if_not_exists: bool,
     ) -> Result<(), MaelstromError> {
-        self.node
+        let response = self
+            .node
             .send_generic_dest(
                 "seq-kv".to_owned(),
-                SeqKvPayload::CompareAndSwap { key, from, to, create_if_not_exists },
+                RequestPayload::CompareAndSwap { key, from, to, create_if_not_exists },
                 Some(Duration::from_millis(500)),
             )
             .await?;
-        Ok(())
+        match response.body.payload {
+            ResponsePayload::CompareAndSwapOk => Ok(()),
+            _ => Err(MaelstromError::not_supported("Invalid response type")),
+        }
     }
 }

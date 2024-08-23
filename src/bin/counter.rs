@@ -3,12 +3,16 @@ use gossip_glomers::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
-enum Payload {
+enum RequestPayload {
     Add { delta: i64 },
     Read,
+}
 
+#[derive(Serialize, Clone, Debug)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum ResponsePayload {
     AddOk,
     ReadOk { value: i64 },
 }
@@ -18,23 +22,23 @@ struct CounterHandler {
     client: SeqKvClient,
 }
 
-impl Handler<Payload> for CounterHandler {
+impl Handler<RequestPayload> for CounterHandler {
     fn init(node: Node) -> Self {
         Self { node: node.clone(), client: SeqKvClient::new(node) }
     }
 
-    async fn handle(&self, counter_msg: MaelstromMessage<Payload>) -> Result<(), MaelstromError> {
+    async fn handle(
+        &self,
+        counter_msg: MaelstromMessage<RequestPayload>,
+    ) -> Result<(), MaelstromError> {
         match counter_msg.body.payload {
-            Payload::Add { delta } => {
+            RequestPayload::Add { delta } => {
                 self.client.write("val".to_string(), delta.to_string()).await?;
-                self.node.reply(&counter_msg, Payload::AddOk)?;
+                self.node.reply(&counter_msg, ResponsePayload::AddOk)?;
             }
-            Payload::Read => {
+            RequestPayload::Read => {
                 let value = self.client.read_int("val".to_string()).await?;
-                self.node.reply(&counter_msg, Payload::ReadOk { value })?;
-            }
-            Payload::AddOk | Payload::ReadOk { .. } => {
-                return Err(MaelstromError::not_supported("Unexpected message type"));
+                self.node.reply(&counter_msg, ResponsePayload::ReadOk { value })?;
             }
         }
         Ok(())
@@ -43,5 +47,5 @@ impl Handler<Payload> for CounterHandler {
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    gossip_glomers::run::<Payload, CounterHandler>().await
+    gossip_glomers::run::<RequestPayload, CounterHandler>().await
 }

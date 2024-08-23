@@ -62,27 +62,27 @@ impl Node {
         Ok(msg_id)
     }
 
-    pub fn reply<P>(
+    pub fn reply<P, R>(
         &self,
         source_msg: &MaelstromMessage<P>,
-        payload: P,
+        payload: R,
     ) -> Result<(), MaelstromError>
     where
-        P: Serialize,
+        R: Serialize,
     {
         self.send_impl(Some(source_msg.body.msg_id), source_msg.src.to_string(), &payload)?;
         Ok(())
     }
 
-    // TODO go back to separate request/response types?
-    pub(super) async fn send_generic_dest<P>(
+    pub(super) async fn send_generic_dest<P, R>(
         &self,
         dest: String,
         payload: P,
         timeout_duration: Option<Duration>,
-    ) -> Result<MaelstromMessage<P>, MaelstromError>
+    ) -> Result<MaelstromMessage<R>, MaelstromError>
     where
-        P: Serialize + DeserializeOwned + Send + Sync + 'static,
+        P: Serialize,
+        R: DeserializeOwned,
     {
         let msg_id = self.send_impl(None, dest.to_string(), &payload)?;
         // Set up channel to receive respone
@@ -101,23 +101,24 @@ impl Node {
                             self.response_map.lock().unwrap().remove(&msg_id);
                             Err(MaelstromError::timeout("Timed out waiting for response"))
                         }
-                        Ok(response) => Ok(serde_json::from_str::<MaelstromMessage<P>>(&response.unwrap()).unwrap()),
+                        Ok(response) => Ok(serde_json::from_str::<MaelstromMessage<R>>(&response.unwrap()).unwrap()),
                     }
                 }
             }
         } else {
-            Ok(serde_json::from_str::<MaelstromMessage<P>>(&rx.await.unwrap()).unwrap())
+            Ok(serde_json::from_str::<MaelstromMessage<R>>(&rx.await.unwrap()).unwrap())
         }
     }
 
-    pub async fn send<P>(
+    pub async fn send<P, R>(
         &self,
         dest: NodeId,
         payload: P,
         timeout: Option<Duration>,
-    ) -> Result<MaelstromMessage<P>, MaelstromError>
+    ) -> Result<MaelstromMessage<R>, MaelstromError>
     where
-        P: Serialize + DeserializeOwned + Send + Sync + 'static,
+        P: Serialize,
+        R: DeserializeOwned,
     {
         self.send_generic_dest(dest.to_string(), payload, timeout).await
     }
