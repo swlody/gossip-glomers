@@ -1,6 +1,7 @@
 use std::{collections::BTreeMap, sync::Mutex};
 
 use serde::{Deserialize, Serialize};
+use tokio::time::Duration;
 
 use crate::{error::MaelstromError, node::Node};
 
@@ -8,22 +9,25 @@ use crate::{error::MaelstromError, node::Node};
 #[serde(tag = "type", rename_all = "snake_case")]
 enum SeqKvPayload {
     Read { key: String },
-    ReadOk { value: String },
     Write { key: String, value: String },
-    WriteOk,
     CompareAndSwap { key: String, from: String, to: String, create_if_not_exists: bool },
+
+    ReadOk { value: String },
+    WriteOk,
     CompareAndSwapOk,
 }
 
+// A client needs a new node templated on the message protocol
+// for the Maelstrom seq-kv service
 pub struct SeqKvClient {
-    node: Node<SeqKvPayload>,
+    node: Node,
 }
 
 impl SeqKvClient {
-    pub fn new<P>(node: &Node<P>) -> Self {
+    pub fn new(node: &Node) -> Self {
         Self {
             node: Node {
-                id: node.id.clone(),
+                id: node.id,
                 network_ids: node.network_ids.clone(),
                 next_msg_id: node.next_msg_id.clone(),
                 cancellation_token: node.cancellation_token.clone(),
@@ -33,9 +37,14 @@ impl SeqKvClient {
     }
 
     pub async fn read(&self, key: String) -> Result<String, MaelstromError> {
+        // Issue a read reqeust to seq-kv service and return the response
         let response = self
             .node
-            .send_generic_dest("seq-kv".to_owned(), SeqKvPayload::Read { key }, None)
+            .send_generic_dest(
+                "seq-kv".to_owned(),
+                SeqKvPayload::Read { key },
+                Some(Duration::from_millis(500)),
+            )
             .await?;
         match response.body.payload {
             SeqKvPayload::ReadOk { value } => Ok(value),
@@ -46,7 +55,11 @@ impl SeqKvClient {
     pub async fn read_int(&self, key: String) -> Result<i64, MaelstromError> {
         let response = self
             .node
-            .send_generic_dest("seq-kv".to_owned(), SeqKvPayload::Read { key }, None)
+            .send_generic_dest(
+                "seq-kv".to_owned(),
+                SeqKvPayload::Read { key },
+                Some(Duration::from_millis(500)),
+            )
             .await?;
         match response.body.payload {
             SeqKvPayload::ReadOk { value } => Ok(value.parse().unwrap()),
@@ -56,7 +69,11 @@ impl SeqKvClient {
 
     pub async fn write(&self, key: String, value: String) -> Result<(), MaelstromError> {
         self.node
-            .send_generic_dest("seq-kv".to_owned(), SeqKvPayload::Write { key, value }, None)
+            .send_generic_dest(
+                "seq-kv".to_owned(),
+                SeqKvPayload::Write { key, value },
+                Some(Duration::from_millis(500)),
+            )
             .await?;
         Ok(())
     }
@@ -72,7 +89,7 @@ impl SeqKvClient {
             .send_generic_dest(
                 "seq-kv".to_owned(),
                 SeqKvPayload::CompareAndSwap { key, from, to, create_if_not_exists },
-                None,
+                Some(Duration::from_millis(500)),
             )
             .await?;
         Ok(())

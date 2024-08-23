@@ -11,11 +11,11 @@ enum Payload {
 }
 
 struct EchoHandler {
-    node: Arc<Node<Payload>>,
+    node: Arc<Node>,
 }
 
 impl Handler<Payload> for EchoHandler {
-    fn init(node: Arc<Node<Payload>>) -> Self {
+    fn init(node: Arc<Node>) -> Self {
         Self { node }
     }
 

@@ -16,12 +16,12 @@ enum Payload {
 }
 
 struct CounterHandler {
-    node: Arc<Node<Payload>>,
+    node: Arc<Node>,
     client: Arc<SeqKvClient>,
 }
 
 impl Handler<Payload> for CounterHandler {
-    fn init(node: Arc<Node<Payload>>) -> Self {
+    fn init(node: Arc<Node>) -> Self {
         Self { node: node.clone(), client: Arc::new(SeqKvClient::new(&node)) }
     }
 

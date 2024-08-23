@@ -1,5 +1,7 @@
 use std::{
+    any::Any,
     collections::BTreeMap,
+    fmt::Debug,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex,
@@ -19,7 +21,7 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct Node<P> {
+pub struct Node {
     // Out NodeId
     pub id: NodeId,
     // Other nodes in the network
@@ -28,7 +30,8 @@ pub struct Node<P> {
     pub next_msg_id: Arc<AtomicU64>,
     pub cancellation_token: CancellationToken,
     // Mapping from msg_id to channel on which to send response
-    pub(super) response_map: Mutex<BTreeMap<u64, oneshot::Sender<MaelstromMessage<P>>>>,
+    pub(super) response_map:
+        Mutex<BTreeMap<u64, oneshot::Sender<Box<dyn Any + Send + Sync + 'static>>>>,
 }
 
 // Same as MaelstromMessage but String for dest instead of NodeId.
@@ -40,15 +43,15 @@ struct GenericDestinationMaelstromMessage<P> {
     body: Body<P>,
 }
 
-impl<P> Node<P> {
-    pub(super) fn send_impl<R>(
+impl Node {
+    pub(super) fn send_impl<P>(
         &self,
         in_reply_to: Option<u64>,
         dest: String,
-        payload: &R,
+        payload: &P,
     ) -> Result<u64, MaelstromError>
     where
-        R: Serialize,
+        P: Serialize,
     {
         let msg_id = self.next_msg_id.fetch_add(1, Ordering::Relaxed);
         let response = GenericDestinationMaelstromMessage {
@@ -61,7 +64,11 @@ impl<P> Node<P> {
         Ok(msg_id)
     }
 
-    pub fn reply(&self, source_msg: &MaelstromMessage<P>, payload: P) -> Result<(), MaelstromError>
+    pub fn reply<P>(
+        &self,
+        source_msg: &MaelstromMessage<P>,
+        payload: P,
+    ) -> Result<(), MaelstromError>
     where
         P: Serialize,
     {
@@ -69,14 +76,14 @@ impl<P> Node<P> {
         Ok(())
     }
 
-    pub(super) async fn send_generic_dest(
+    pub(super) async fn send_generic_dest<P>(
         &self,
         dest: String,
         payload: P,
         timeout_duration: Option<Duration>,
     ) -> Result<MaelstromMessage<P>, MaelstromError>
     where
-        P: Serialize,
+        P: Serialize + Send + Sync + 'static,
     {
         let msg_id = self.send_impl(None, dest.to_string(), &payload)?;
         // Set up channel to receive respone
@@ -95,23 +102,23 @@ impl<P> Node<P> {
                             self.response_map.lock().unwrap().remove(&msg_id);
                             Err(MaelstromError::timeout("Timed out waiting for response"))
                         }
-                        Ok(response) => Ok(response.unwrap()),
+                        Ok(response) => Ok(Box::into_inner(response.unwrap().downcast::<MaelstromMessage<P>>().unwrap()))
                     }
                 }
             }
         } else {
-            Ok(rx.await.unwrap())
+            Ok(Box::into_inner(rx.await.unwrap().downcast::<MaelstromMessage<P>>().unwrap()))
         }
     }
 
-    pub async fn send(
+    pub async fn send<P>(
         &self,
         dest: NodeId,
         payload: P,
         timeout: Option<Duration>,
     ) -> Result<MaelstromMessage<P>, MaelstromError>
     where
-        P: Serialize,
+        P: Serialize + Send + Sync + 'static,
     {
         self.send_generic_dest(dest.to_string(), payload, timeout).await
     }

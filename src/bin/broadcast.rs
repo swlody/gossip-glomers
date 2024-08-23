@@ -31,7 +31,7 @@ enum Payload {
 }
 
 struct BroadcastHandler {
-    node: Arc<Node<Payload>>,
+    node: Arc<Node>,
     seen_messages: RwLock<BTreeSet<u64>>,
     neighbors: OnceLock<Vec<NodeId>>,
 }
@@ -88,7 +88,7 @@ impl BroadcastHandler {
 }
 
 impl Handler<Payload> for BroadcastHandler {
-    fn init(node: Arc<Node<Payload>>) -> Self {
+    fn init(node: Arc<Node>) -> Self {
         Self { node, seen_messages: RwLock::new(BTreeSet::new()), neighbors: OnceLock::new() }
     }
 

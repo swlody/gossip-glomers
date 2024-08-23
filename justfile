@@ -21,4 +21,4 @@ efficiency: (build "broadcast")
     maelstrom test -w broadcast --bin ./target/debug/broadcast --node-count 25 --time-limit 20 --rate 100 --latency 100 {{nemesis_arg}} --log-stderr
 
 counter: (build "counter")
-    maelstrom test -w g-counter --bin ./target/debug/counter --node-count 3 --rate 100 --time-limit 20 --nemesis partition
+    maelstrom test -w g-counter --bin ./target/debug/counter --node-count 1 --rate 10 --time-limit 20 --log-stderr

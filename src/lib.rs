@@ -1,3 +1,5 @@
+#![feature(box_into_inner)]
+
 pub mod error;
 pub mod message;
 pub mod node;
@@ -34,7 +36,7 @@ struct InitOk {}
 // Handler trait - user needs to impl these methods to handle messages
 pub trait Handler<P> {
     // Allow user to store node in their state to respond to/send messages
-    fn init(node: Arc<Node<P>>) -> Self;
+    fn init(node: Arc<Node>) -> Self;
 
     // Handle a message - should return () on success otherwise Err(MaelstromError)
     fn handle(
@@ -49,7 +51,7 @@ pub trait Handler<P> {
 // Will automatically respond to requests with formatted error on handle() error
 pub async fn run<P, H>() -> eyre::Result<()>
 where
-    P: DeserializeOwned + Debug + Send + 'static,
+    P: DeserializeOwned + Debug + Send + Sync + 'static,
     H: Handler<P> + Send + Sync + 'static,
 {
     // Initialization
@@ -91,7 +93,7 @@ where
             // send the response to whichever task is waiting for it
             if let Some(in_reply_to) = request_msg.body.in_reply_to {
                 if let Some(tx) = node.response_map.lock().unwrap().remove(&in_reply_to) {
-                    if let Err(request_msg) = tx.send(request_msg) {
+                    if let Err(request_msg) = tx.send(Box::new(request_msg)) {
                         eprintln!(
                             "INFO: Received response after operation timeout: {:?}",
                             request_msg
