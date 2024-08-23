@@ -11,6 +11,7 @@ use tokio::{
     sync::oneshot,
     time::{timeout, Duration},
 };
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     error::MaelstromError,
@@ -22,6 +23,7 @@ pub struct Node<P> {
     pub id: NodeId,
     pub network_ids: Vec<NodeId>,
     pub next_msg_id: Arc<AtomicU64>,
+    pub cancellation_token: CancellationToken,
     pub(super) response_map: Mutex<BTreeMap<u64, oneshot::Sender<MaelstromMessage<P>>>>,
 }
 
@@ -75,12 +77,19 @@ impl<P> Node<P> {
         self.response_map.lock().unwrap().insert(msg_id, tx);
 
         if let Some(timeout_duration) = timeout_duration {
-            match timeout(timeout_duration, rx).await {
-                Err(_) => {
-                    self.response_map.lock().unwrap().remove(&msg_id);
-                    Err(MaelstromError::timeout("Timed out waiting for response"))
+            tokio::select! {
+                _ = self.cancellation_token.cancelled() => {
+                    Err(MaelstromError::node_not_found("Node shut down."))
                 }
-                Ok(response) => Ok(response.unwrap()),
+                res = timeout(timeout_duration, rx) => {
+                    match res {
+                        Err(_) => {
+                            self.response_map.lock().unwrap().remove(&msg_id);
+                            Err(MaelstromError::timeout("Timed out waiting for response"))
+                        }
+                        Ok(response) => Ok(response.unwrap()),
+                    }
+                }
             }
         } else {
             Ok(rx.await.unwrap())

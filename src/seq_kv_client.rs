@@ -26,6 +26,7 @@ impl SeqKvClient {
                 id: node.id.clone(),
                 network_ids: node.network_ids.clone(),
                 next_msg_id: node.next_msg_id.clone(),
+                cancellation_token: node.cancellation_token.clone(),
                 response_map: Mutex::new(BTreeMap::new()),
             },
         }

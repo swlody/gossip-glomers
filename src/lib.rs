@@ -55,25 +55,24 @@ where
         id: init_msg.body.payload.node_id,
         network_ids: init_msg.body.payload.node_ids,
         next_msg_id: Arc::new(0.into()),
+        cancellation_token: CancellationToken::new(),
         response_map: Mutex::new(BTreeMap::new()),
     });
 
     node.send_impl(Some(init_msg.body.msg_id), init_msg.src.to_string(), &InitOk {})?;
 
-    let token = CancellationToken::new();
-    let cloned_token = token.clone();
     let tracker = TaskTracker::new();
+    let cloned_node = node.clone();
     tracker.spawn(async move {
         tokio::select! {
-            _ = signal::ctrl_c() => { cloned_token.cancel() }
-            _ = cloned_token.cancelled() => {}
+            _ = signal::ctrl_c() => { cloned_node.cancellation_token.cancel() }
+            _ = cloned_node.cancellation_token.cancelled() => {}
         }
     });
 
-    let cloned_token = token.clone();
     let handler = Arc::new(H::init(node.clone()));
     for line in stdin().lock().lines() {
-        if cloned_token.is_cancelled() {
+        if node.cancellation_token.is_cancelled() {
             break;
         }
 
@@ -87,7 +86,6 @@ where
 
         let handler = handler.clone();
         let node = node.clone();
-        let cloned_token = token.clone();
         tracker.spawn(async move {
             if let Some(in_reply_to) = request_msg.body.in_reply_to {
                 if let Some(tx) = node.response_map.lock().unwrap().remove(&in_reply_to) {
@@ -101,7 +99,7 @@ where
             } else {
                 let res = tokio::select! {
                     res = handler.handle(request_msg) => res,
-                    _ = cloned_token.cancelled() => Ok(()),
+                    _ = node.cancellation_token.cancelled() => Ok(()),
                 };
 
                 if let Err(err) = res {
@@ -120,7 +118,7 @@ where
         });
     }
 
-    token.cancel();
+    node.cancellation_token.cancel();
     tracker.close();
     tracker.wait().await;
 
