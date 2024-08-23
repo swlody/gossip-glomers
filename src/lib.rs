@@ -91,7 +91,12 @@ where
         tracker.spawn(async move {
             if let Some(in_reply_to) = request_msg.body.in_reply_to {
                 if let Some(tx) = node.response_map.lock().unwrap().remove(&in_reply_to) {
-                    tx.send(request_msg).unwrap();
+                    if let Err(request_msg) = tx.send(request_msg) {
+                        eprintln!(
+                            "INFO: Received response after operation timeout: {:?}",
+                            request_msg
+                        );
+                    }
                 }
             } else {
                 let res = tokio::select! {

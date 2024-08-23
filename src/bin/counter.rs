@@ -29,6 +29,7 @@ impl Handler<Payload> for CounterHandler {
         match counter_msg.body.payload {
             Payload::Add { delta } => {
                 self.client.write("val".to_string(), delta.to_string()).await?;
+                self.node.reply(&counter_msg, Payload::AddOk)?;
             }
             Payload::Read => {
                 let value = self.client.read_int("val".to_string()).await?;

@@ -3,8 +3,13 @@ use std::{
     sync::{Arc, OnceLock, RwLock},
 };
 
-use gossip_glomers::{error::MaelstromError, Handler, MaelstromMessage, Node, NodeId};
+use gossip_glomers::{
+    error::{MaelstromError, MaelstromErrorType},
+    message::Body,
+    Handler, MaelstromMessage, Node, NodeId,
+};
 use serde::{Deserialize, Serialize};
+use tokio::time::Duration;
 
 // Requests from client
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -33,7 +38,7 @@ struct BroadcastHandler {
 
 impl BroadcastHandler {
     async fn gossip(&self, message: u64, src: Option<NodeId>) -> Result<(), MaelstromError> {
-        for neighbor in self
+        for &neighbor in self
             .neighbors
             .get()
             .ok_or_else(|| {
@@ -44,7 +49,30 @@ impl BroadcastHandler {
             .iter()
             .filter(|&&id| src.map_or(true, |src| id != src))
         {
-            self.node.send(*neighbor, Payload::Gossip { message }).await?;
+            let node = self.node.clone();
+            tokio::spawn(async move {
+                let mut timeout = Duration::from_millis(100);
+                loop {
+                    match node.send(neighbor, Payload::Gossip { message }, Some(timeout)).await {
+                        Ok(MaelstromMessage {
+                            body: Body { payload: Payload::GossipOk, .. },
+                            ..
+                        }) => {
+                            return Ok(());
+                        }
+                        Ok(_) => {
+                            return Err(MaelstromError::not_supported("Invalid response to gossip"))
+                        }
+                        Err(e) if e.error_type == MaelstromErrorType::Timeout => {
+                            timeout += Duration::from_millis(100);
+                            continue;
+                        }
+                        Err(e) => {
+                            return Err(e);
+                        }
+                    }
+                }
+            });
         }
         Ok(())
     }

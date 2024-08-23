@@ -9,7 +9,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use tokio::{
     sync::oneshot,
-    time::{interval, Duration},
+    time::{timeout, Duration},
 };
 
 use crate::{
@@ -65,38 +65,25 @@ impl<P> Node<P> {
         &self,
         dest: String,
         payload: P,
+        timeout_duration: Option<Duration>,
     ) -> Result<MaelstromMessage<P>, MaelstromError>
     where
         P: Serialize,
     {
-        let mut msg_id = self.send_impl(None, dest.to_string(), &payload)?;
-        let (mut tx, mut rx) = oneshot::channel();
+        let msg_id = self.send_impl(None, dest.to_string(), &payload)?;
+        let (tx, rx) = oneshot::channel();
         self.response_map.lock().unwrap().insert(msg_id, tx);
-        let mut retry_interval = interval(Duration::from_millis(100));
-        // How many times to tick before retrying
-        let mut retry_tick_count = 0;
-        let mut ticks_since_last_retry = 0;
 
-        loop {
-            tokio::select! {
-                _ = retry_interval.tick() => {
-                    if ticks_since_last_retry == retry_tick_count {
-                        // Backoff, require one extra second for each retry
-                        retry_tick_count += 1;
-                        ticks_since_last_retry = 0;
-                        let mut guard = self.response_map.lock().unwrap();
-                        guard.remove(&msg_id);
-                        msg_id = self.send_impl(None, dest.to_string(), &payload)?;
-                        (tx, rx) = oneshot::channel();
-                        guard.insert(msg_id, tx);
-                    } else {
-                        ticks_since_last_retry += 1;
-                    }
+        if let Some(timeout_duration) = timeout_duration {
+            match timeout(timeout_duration, rx).await {
+                Err(_) => {
+                    self.response_map.lock().unwrap().remove(&msg_id);
+                    Err(MaelstromError::timeout("Timed out waiting for response"))
                 }
-                response = &mut rx => {
-                    return Ok(response.unwrap());
-                }
+                Ok(response) => Ok(response.unwrap()),
             }
+        } else {
+            Ok(rx.await.unwrap())
         }
     }
 
@@ -104,10 +91,11 @@ impl<P> Node<P> {
         &self,
         dest: NodeId,
         payload: P,
+        timeout: Option<Duration>,
     ) -> Result<MaelstromMessage<P>, MaelstromError>
     where
         P: Serialize,
     {
-        self.send_generic_dest(dest.to_string(), payload).await
+        self.send_generic_dest(dest.to_string(), payload, timeout).await
     }
 }

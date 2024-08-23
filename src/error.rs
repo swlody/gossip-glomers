@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-#[derive(Error, Serialize, Deserialize, Copy, Clone, Debug)]
+#[derive(Error, Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
 #[serde(tag = "code")]
 pub enum MaelstromErrorType {
     #[serde(rename = "0")]
