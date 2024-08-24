@@ -4,7 +4,7 @@ use std::{
 };
 
 use gossip_glomers::{
-    error::MaelstromError,
+    error::{error_type, MaelstromError},
     message::{Body, Fallible},
     node_id, parse_node_id, Handler, MaelstromMessage, Node,
 };
@@ -73,8 +73,7 @@ impl BroadcastHandler {
                             // On ack, return
                             return Ok(());
                         }
-                        // TODO conflating errors - returned from client vs internal
-                        Err(e) if e.code == 0 => {
+                        Err(e) if e.code == error_type::TIMEOUT => {
                             // Backoff timeout by 100ms per failure
                             timeout += Duration::from_millis(100);
                             continue;

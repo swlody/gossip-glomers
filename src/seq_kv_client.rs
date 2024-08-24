@@ -50,9 +50,8 @@ impl SeqKvClient {
         let response = self.node.send("seq-kv", RequestPayload::Read { key }, None).await?;
         match response.body.payload {
             Fallible::Ok(ResponsePayload::ReadOk { value }) => Ok(value),
-            // TODO don't panic here, or anywhere reliant on network input!!
-            Fallible::Ok(_) => panic!("Invalid response"),
-            Fallible::Err(e) => Err(e),
+            Fallible::Err(err) => Err(err),
+            _ => Err(MaelstromError::not_supported("Invalid response to read request")),
         }
     }
 
@@ -60,22 +59,18 @@ impl SeqKvClient {
         let response = self.node.send("seq-kv", RequestPayload::Read { key }, None).await?;
         match response.body.payload {
             Fallible::Ok(ResponsePayload::ReadOk { value }) => Ok(value.parse().unwrap()),
-            Fallible::Ok(_) => {
-                panic!("Invalid response");
-            }
-            Fallible::Err(e) => Err(e),
+            Fallible::Err(err) => Err(err),
+            _ => Err(MaelstromError::not_supported("Invalid response to read request")),
         }
     }
 
     pub async fn write(&self, key: String, value: String) -> Result<(), MaelstromError> {
-        self.node
-            .send::<RequestPayload, ResponsePayload>(
-                "seq-kv",
-                RequestPayload::Write { key, value },
-                None,
-            )
-            .await?;
-        Ok(())
+        let response = self.node.send("seq-kv", RequestPayload::Write { key, value }, None).await?;
+        match response.body.payload {
+            Fallible::Ok(ResponsePayload::WriteOk) => Ok(()),
+            Fallible::Err(err) => Err(err),
+            _ => Err(MaelstromError::not_supported("Invalid response to write request")),
+        }
     }
 
     pub async fn compare_and_swap(
@@ -85,13 +80,19 @@ impl SeqKvClient {
         to: String,
         create_if_not_exists: bool,
     ) -> Result<(), MaelstromError> {
-        self.node
-            .send::<RequestPayload, ResponsePayload>(
+        // TODO conflating client vs server errors here
+        let response = self
+            .node
+            .send(
                 "seq-kv",
                 RequestPayload::CompareAndSwap { key, from, to, create_if_not_exists },
                 None,
             )
             .await?;
-        Ok(())
+        match response.body.payload {
+            Fallible::Ok(ResponsePayload::CompareAndSwapOk) => Ok(()),
+            Fallible::Err(err) => Err(err),
+            _ => Err(MaelstromError::not_supported("Invalid response to CAS request")),
+        }
     }
 }

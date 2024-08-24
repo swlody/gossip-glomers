@@ -18,7 +18,7 @@ use tokio::{
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use crate::{
-    error::MaelstromError,
+    error::{error_type, MaelstromError},
     message::{Body, Fallible, MaelstromMessage},
 };
 
@@ -142,7 +142,7 @@ impl Node {
                         node.send_and_forget(None, request_msg.body.msg_id, request_msg.src, &err);
 
                         match error_type {
-                            13 | 14 => {
+                            error_type::CRASH | error_type::PRECONDITION_FAILED => {
                                 panic!("Unrecoverable error: {}", err.text)
                             }
                             _ => {}
@@ -172,7 +172,7 @@ impl Node {
         let msg = MaelstromMessage {
             src: node_id(self.id),
             dest,
-            body: Body { msg_id: msg_id, in_reply_to, payload },
+            body: Body { msg_id, in_reply_to, payload },
         };
         let msg = serde_json::to_string(&msg).unwrap();
         println!("{msg}");
@@ -215,13 +215,16 @@ impl Node {
                             Err(MaelstromError::timeout("Timed out waiting for response"))
                         }
                         Ok(response) => {
-                            Ok(serde_json::from_str::<MaelstromMessage<Fallible<R>>>(&response.unwrap()).unwrap())
+                            let response: MaelstromMessage<Fallible<R>> = serde_json::from_str(&response.unwrap()).unwrap();
+                            Ok(response)
                         }
                     }
                 }
             }
         } else {
-            Ok(serde_json::from_str::<MaelstromMessage<Fallible<R>>>(&rx.await.unwrap()).unwrap())
+            let response: MaelstromMessage<Fallible<R>> =
+                serde_json::from_str(&rx.await.unwrap()).unwrap();
+            Ok(response)
         }
     }
 }

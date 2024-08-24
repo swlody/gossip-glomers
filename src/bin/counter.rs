@@ -1,5 +1,10 @@
 use gossip_glomers::{
-    error::MaelstromError, seq_kv_client::SeqKvClient, Handler, MaelstromMessage, Node,
+    error::{
+        error_type::{self},
+        MaelstromError,
+    },
+    seq_kv_client::SeqKvClient,
+    Handler, MaelstromMessage, Node,
 };
 use serde::{Deserialize, Serialize};
 
@@ -45,19 +50,16 @@ impl Handler<RequestPayload> for CounterHandler {
                         )
                         .await;
                     match res {
-                        Err(MaelstromError { code: 22, .. }) => {
+                        Err(MaelstromError { code: error_type::PRECONDITION_FAILED, .. }) => {
                             continue;
                         }
-                        Err(MaelstromError { code: 20, .. }) => {
+                        Err(MaelstromError { code: error_type::KEY_DOES_NOT_EXIST, .. }) => {
                             break;
                         }
-                        Err(_) => {
-                            // TODO no panic here
-                            panic!("Invalid response");
-                        }
-                        Ok(_) => {
+                        Ok(()) => {
                             break;
                         }
+                        Err(_) => return Err(MaelstromError::not_supported("Invalid response")),
                     }
                 }
                 self.node.reply(counter_msg, ResponsePayload::AddOk);
@@ -66,10 +68,8 @@ impl Handler<RequestPayload> for CounterHandler {
                 eprintln!("Received read, issuing request");
                 let value = match self.client.read_int("counter".to_string()).await {
                     Ok(v) => v,
-                    Err(MaelstromError { code: 20, .. }) => 0,
-                    Err(_) => {
-                        panic!("Invalid response");
-                    }
+                    Err(MaelstromError { code: error_type::KEY_DOES_NOT_EXIST, .. }) => 0,
+                    Err(_) => return Err(MaelstromError::not_supported("Invalid response")),
                 };
                 self.node.reply(counter_msg, ResponsePayload::ReadOk { value });
             }
