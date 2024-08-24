@@ -35,7 +35,7 @@ impl Handler<RequestPayload> for EchoHandler {
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    let node = gossip_glomers::init().await?;
+    let node = Node::init().await?;
     let handler = EchoHandler { node: node.clone() };
-    gossip_glomers::run(&node, handler).await
+    node.run(handler).await
 }

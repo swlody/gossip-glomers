@@ -157,11 +157,11 @@ impl Handler<RequestPayload> for BroadcastHandler {
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    let node = gossip_glomers::init().await?;
+    let node = Node::init().await?;
     let handler = BroadcastHandler {
         node: node.clone(),
         seen_messages: RwLock::new(BTreeSet::new()),
         neighbors: OnceLock::new(),
     };
-    gossip_glomers::run(&node, handler).await
+    node.run(handler).await
 }

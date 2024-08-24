@@ -49,7 +49,7 @@ impl Handler<RequestPayload> for UniqueIdHandler {
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    let node = gossip_glomers::init().await?;
+    let node = Node::init().await?;
     let handler = UniqueIdHandler { node: node.clone() };
-    gossip_glomers::run(&node, handler).await
+    node.run(handler).await
 }

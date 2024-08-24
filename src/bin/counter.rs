@@ -29,11 +29,11 @@ impl Handler<RequestPayload> for CounterHandler {
     ) -> Result<(), MaelstromError> {
         match counter_msg.body.payload {
             RequestPayload::Add { delta } => {
-                self.client.write("val".to_string(), delta.to_string()).await?;
+                self.client.write("counter".to_string(), delta.to_string()).await?;
                 self.node.reply(&counter_msg, ResponsePayload::AddOk)?;
             }
             RequestPayload::Read => {
-                let value = self.client.read_int("val".to_string()).await?;
+                let value = self.client.read_int("counter".to_string()).await?;
                 self.node.reply(&counter_msg, ResponsePayload::ReadOk { value })?;
             }
         }
@@ -43,8 +43,10 @@ impl Handler<RequestPayload> for CounterHandler {
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    let node = gossip_glomers::init().await?;
+    let node = Node::init().await?;
+    // TODO reduce node cloning?
     let handler = CounterHandler { node: node.clone(), client: SeqKvClient::new(node.clone()) };
-    handler.client.write("val".to_string(), "0".to_string()).await?;
-    gossip_glomers::run(&node, handler).await
+    handler.client.write("counter".to_string(), "10".to_string()).await?;
+    assert_eq!(10, handler.client.read_int("counter".to_string()).await?);
+    node.run(handler).await
 }
