@@ -50,7 +50,7 @@ pub enum MaelstromErrorType {
 }
 
 #[allow(clippy::module_name_repetitions)]
-#[derive(Error, Serialize, Deserialize, Debug)]
+#[derive(Error, Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type", rename = "error")]
 #[error("Error: {error_type}: {text}")]
 pub struct MaelstromError {

@@ -19,29 +19,18 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use crate::{
     error::{MaelstromError, MaelstromErrorType},
-    message::{Body, MaelstromMessage, NodeId},
+    message::{Body, Fallible, MaelstromMessage},
 };
 
-#[derive(Debug, Clone)]
-pub struct Node {
-    // Out NodeId
-    pub id: NodeId,
-    // Other nodes in the network
-    pub network_ids: Arc<Vec<NodeId>>,
-    // Monotonically increasing message id
-    pub next_msg_id: Arc<AtomicU64>,
-    pub cancellation_token: CancellationToken,
-    // Mapping from msg_id to channel on which to send response
-    pub(super) response_map: Arc<Mutex<BTreeMap<u64, oneshot::Sender<String>>>>,
+pub fn node_id(id: u32) -> String {
+    format!("n{id}")
 }
 
-// Same as MaelstromMessage but String for dest instead of NodeId.
-// For interacting wtih Maelstrom services.
-#[derive(Serialize, Deserialize, Clone, Debug)]
-struct GenericDestinationMaelstromMessage<P> {
-    src: NodeId,
-    dest: String,
-    body: Body<P>,
+pub fn parse_node_id(id: &str) -> Result<u32, MaelstromError> {
+    id.strip_prefix("n")
+        .ok_or_else(|| MaelstromError::malformed_request("Invalid node id"))?
+        .parse()
+        .map_err(|_| MaelstromError::malformed_request("Invalid node id"))
 }
 
 // Handler trait - user needs to impl these methods to handle messages
@@ -49,7 +38,7 @@ pub trait Handler<P> {
     // Handle a message - should return () on success otherwise Err(MaelstromError)
     fn handle(
         &self,
-        msg: MaelstromMessage<P>,
+        msg: &MaelstromMessage<P>,
     ) -> impl Future<Output = Result<(), MaelstromError>> + Send
     where
         P: DeserializeOwned;
@@ -59,13 +48,25 @@ pub trait Handler<P> {
 #[derive(Deserialize, Clone, Debug)]
 #[serde(tag = "type", rename = "init")]
 struct Init {
-    node_id: NodeId,
-    node_ids: Vec<NodeId>,
+    node_id: String,
+    #[allow(unused)]
+    node_ids: Vec<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(tag = "type", rename = "init_ok")]
 struct InitOk {}
+
+#[derive(Debug, Clone)]
+pub struct Node {
+    // Out NodeId
+    pub id: u32,
+    // Monotonically increasing message id
+    pub next_msg_id: Arc<AtomicU64>,
+    pub cancellation_token: CancellationToken,
+    // Mapping from msg_id to channel on which to send response
+    pub(super) response_map: Arc<Mutex<BTreeMap<u64, oneshot::Sender<String>>>>,
+}
 
 impl Node {
     pub async fn init() -> eyre::Result<Self> {
@@ -74,15 +75,14 @@ impl Node {
         let init_msg: MaelstromMessage<Init> =
             serde_json::from_str::<MaelstromMessage<Init>>(&buffer)?;
         let node = Self {
-            id: init_msg.body.payload.node_id,
-            network_ids: Arc::new(init_msg.body.payload.node_ids),
+            id: parse_node_id(&init_msg.body.payload.node_id)?,
             next_msg_id: Arc::new(0.into()),
             cancellation_token: CancellationToken::new(),
             response_map: Arc::new(Mutex::new(BTreeMap::new())),
         };
 
         // Let maelstrom know that we are initialized
-        node.send_impl(Some(init_msg.body.msg_id), init_msg.src.to_string(), &InitOk {})?;
+        node.send_and_forget(Some(init_msg.body.msg_id), init_msg.src.to_string(), &InitOk {});
 
         Ok(node)
     }
@@ -130,19 +130,15 @@ impl Node {
                     // we don't know who to respond to with an error!
                     let request_msg = serde_json::from_str::<MaelstromMessage<P>>(&line).unwrap();
 
-                    // Copy these for error handling
-                    let msg_id = request_msg.body.msg_id;
-                    let src = request_msg.src;
-
                     let res = tokio::select! {
-                        res = handler.handle(request_msg) => res,
+                        res = handler.handle(&request_msg) => res,
                         _ = node.cancellation_token.cancelled() => Ok(()),
                     };
 
                     // Serialize and send error message from handler
                     if let Err(err) = res {
                         let error_type = err.error_type;
-                        node.send_impl(Some(msg_id), src.to_string(), &err).unwrap();
+                        node.send_and_forget(Some(request_msg.body.msg_id), request_msg.src, &err);
 
                         match error_type {
                             MaelstromErrorType::Crash | MaelstromErrorType::Abort => {
@@ -163,50 +159,40 @@ impl Node {
         Ok(())
     }
 
-    pub(super) fn send_impl<P>(
-        &self,
-        in_reply_to: Option<u64>,
-        dest: String,
-        payload: &P,
-    ) -> Result<u64, MaelstromError>
+    fn send_and_forget<P>(&self, in_reply_to: Option<u64>, dest: String, payload: &P) -> u64
     where
         P: Serialize,
     {
         let msg_id = self.next_msg_id.fetch_add(1, Ordering::Relaxed);
-        let msg = GenericDestinationMaelstromMessage {
-            src: self.id,
+        let msg = MaelstromMessage {
+            src: node_id(self.id),
             dest,
             body: Body { msg_id, in_reply_to, payload },
         };
         let msg = serde_json::to_string(&msg).unwrap();
-        eprintln!("-> {msg}");
         println!("{msg}");
-        Ok(msg_id)
+        msg_id
     }
 
-    pub fn reply<P, R>(
-        &self,
-        source_msg: &MaelstromMessage<P>,
-        payload: R,
-    ) -> Result<(), MaelstromError>
+    pub fn reply<P, R>(&self, source_msg: &MaelstromMessage<P>, payload: R)
     where
         R: Serialize,
     {
-        self.send_impl(Some(source_msg.body.msg_id), source_msg.src.to_string(), &payload)?;
-        Ok(())
+        self.send_and_forget(Some(source_msg.body.msg_id), source_msg.src.to_string(), &payload);
     }
 
-    pub(super) async fn send_generic_dest<P, R>(
+    pub async fn send<P, R>(
         &self,
-        dest: String,
+        dest: &str,
         payload: P,
         timeout_duration: Option<Duration>,
-    ) -> Result<MaelstromMessage<R>, MaelstromError>
+    ) -> Result<MaelstromMessage<Fallible<R>>, MaelstromError>
     where
-        P: Serialize,
-        R: DeserializeOwned,
+        P: Serialize + Debug,
+        R: DeserializeOwned + Debug,
     {
-        let msg_id = self.send_impl(None, dest.to_string(), &payload)?;
+        eprintln!("Sending request: {:?}", payload);
+        let msg_id = self.send_and_forget(None, dest.to_string(), &payload);
         // Set up channel to receive respone
         let (tx, rx) = oneshot::channel();
         // Store sender on map with msg_id
@@ -225,27 +211,17 @@ impl Node {
                         }
                         Ok(response) => {
                             let response = response.unwrap();
-                            eprintln!("<- {response}");
-                            Ok(serde_json::from_str::<MaelstromMessage<R>>(&response).unwrap())
+                            eprintln!("Received response: {:?}", response);
+                            let msg = serde_json::from_str::<MaelstromMessage<Fallible<R>>>(&response).unwrap();
+                            Ok(msg)
                         }
                     }
                 }
             }
         } else {
-            Ok(serde_json::from_str::<MaelstromMessage<R>>(&rx.await.unwrap()).unwrap())
+            let msg =
+                serde_json::from_str::<MaelstromMessage<Fallible<R>>>(&rx.await.unwrap()).unwrap();
+            Ok(msg)
         }
-    }
-
-    pub async fn send<P, R>(
-        &self,
-        dest: NodeId,
-        payload: P,
-        timeout: Option<Duration>,
-    ) -> Result<MaelstromMessage<R>, MaelstromError>
-    where
-        P: Serialize,
-        R: DeserializeOwned,
-    {
-        self.send_generic_dest(dest.to_string(), payload, timeout).await
     }
 }
