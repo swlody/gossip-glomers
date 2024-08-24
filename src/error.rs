@@ -1,108 +1,58 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-#[derive(Error, Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
-#[serde(tag = "code")]
-pub enum MaelstromErrorType {
-    #[serde(rename = "0")]
-    #[error("Timeout")]
-    Timeout,
-
-    #[serde(rename = "1")]
-    #[error("Node not found")]
-    NodeNotFound,
-
-    #[serde(rename = "10")]
-    #[error("Not supported")]
-    NotSupported,
-
-    #[serde(rename = "11")]
-    #[error("Temporarily unavailable")]
-    TemporarilyUnavailable,
-
-    #[serde(rename = "12")]
-    #[error("Malformed request")]
-    MalformedRequest,
-
-    #[serde(rename = "13")]
-    #[error("Crash")]
-    Crash,
-
-    #[serde(rename = "14")]
-    #[error("Abort")]
-    Abort,
-
-    #[serde(rename = "20")]
-    #[error("Key does not exist")]
-    KeyDoesNotExist,
-
-    #[serde(rename = "21")]
-    #[error("Key already exists")]
-    KeyAlreadyExists,
-
-    #[serde(rename = "22")]
-    #[error("Precondition failed")]
-    PreconditionFailed,
-
-    #[serde(rename = "23")]
-    #[error("Transaction  conflict")]
-    TxnConflict,
-}
-
 #[allow(clippy::module_name_repetitions)]
 #[derive(Error, Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type", rename = "error")]
-#[error("Error: {error_type}: {text}")]
+#[error("Error: {code}: {text}")]
 pub struct MaelstromError {
     pub text: String,
-    #[serde(flatten)]
-    #[source]
-    pub error_type: MaelstromErrorType,
+    pub code: u32,
 }
 
 #[allow(dead_code)]
 impl MaelstromError {
     pub fn timeout(error_text: impl Into<String>) -> Self {
-        Self { text: error_text.into(), error_type: MaelstromErrorType::Timeout }
+        Self { text: error_text.into(), code: 0 }
     }
 
     pub fn node_not_found(error_text: impl Into<String>) -> Self {
-        Self { text: error_text.into(), error_type: MaelstromErrorType::NodeNotFound }
+        Self { text: error_text.into(), code: 1 }
     }
 
     pub fn not_supported(error_text: impl Into<String>) -> Self {
-        Self { text: error_text.into(), error_type: MaelstromErrorType::NotSupported }
+        Self { text: error_text.into(), code: 10 }
     }
 
     pub fn temporarily_unavailable(error_text: impl Into<String>) -> Self {
-        Self { text: error_text.into(), error_type: MaelstromErrorType::TemporarilyUnavailable }
+        Self { text: error_text.into(), code: 1 }
     }
 
     pub fn malformed_request(error_text: impl Into<String>) -> Self {
-        Self { text: error_text.into(), error_type: MaelstromErrorType::MalformedRequest }
+        Self { text: error_text.into(), code: 12 }
     }
 
     pub fn crash(error_text: impl Into<String>) -> Self {
-        Self { text: error_text.into(), error_type: MaelstromErrorType::Crash }
+        Self { text: error_text.into(), code: 13 }
     }
 
     pub fn abort(error_text: impl Into<String>) -> Self {
-        Self { text: error_text.into(), error_type: MaelstromErrorType::Abort }
+        Self { text: error_text.into(), code: 14 }
     }
 
     pub fn key_does_not_exist(error_text: impl Into<String>) -> Self {
-        Self { text: error_text.into(), error_type: MaelstromErrorType::KeyDoesNotExist }
+        Self { text: error_text.into(), code: 20 }
     }
 
     pub fn key_already_exists(error_text: impl Into<String>) -> Self {
-        Self { text: error_text.into(), error_type: MaelstromErrorType::KeyAlreadyExists }
+        Self { text: error_text.into(), code: 21 }
     }
 
     pub fn precondition_failed(error_text: impl Into<String>) -> Self {
-        Self { text: error_text.into(), error_type: MaelstromErrorType::PreconditionFailed }
+        Self { text: error_text.into(), code: 22 }
     }
 
     pub fn txn_conflict(error_text: impl Into<String>) -> Self {
-        Self { text: error_text.into(), error_type: MaelstromErrorType::TxnConflict }
+        Self { text: error_text.into(), code: 23 }
     }
 }

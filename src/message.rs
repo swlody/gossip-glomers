@@ -11,7 +11,8 @@ pub struct MaelstromMessage<P> {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Body<P> {
-    pub msg_id: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub msg_id: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub in_reply_to: Option<u64>,
     #[serde(flatten)]

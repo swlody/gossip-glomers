@@ -18,7 +18,7 @@ use tokio::{
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use crate::{
-    error::{MaelstromError, MaelstromErrorType},
+    error::MaelstromError,
     message::{Body, Fallible, MaelstromMessage},
 };
 
@@ -82,7 +82,7 @@ impl Node {
         };
 
         // Let maelstrom know that we are initialized
-        node.send_and_forget(Some(init_msg.body.msg_id), init_msg.src.to_string(), &InitOk {});
+        node.reply(&init_msg, InitOk {});
 
         Ok(node)
     }
@@ -116,7 +116,8 @@ impl Node {
                 // If the received message is in response to an existing message,
                 // send the response to whichever task is waiting for it
                 if let Some(in_reply_to) = in_reply_to {
-                    if let Some(tx) = node.response_map.lock().unwrap().remove(&in_reply_to) {
+                    let mut guard = node.response_map.lock().unwrap();
+                    if let Some(tx) = guard.remove(&in_reply_to) {
                         if let Err(request_msg) = tx.send(line) {
                             eprintln!(
                                 "INFO: Received response after operation timeout: {:?}",
@@ -137,11 +138,11 @@ impl Node {
 
                     // Serialize and send error message from handler
                     if let Err(err) = res {
-                        let error_type = err.error_type;
-                        node.send_and_forget(Some(request_msg.body.msg_id), request_msg.src, &err);
+                        let error_type = err.code;
+                        node.send_and_forget(None, request_msg.body.msg_id, request_msg.src, &err);
 
                         match error_type {
-                            MaelstromErrorType::Crash | MaelstromErrorType::Abort => {
+                            13 | 14 => {
                                 panic!("Unrecoverable error: {}", err.text)
                             }
                             _ => {}
@@ -159,26 +160,29 @@ impl Node {
         Ok(())
     }
 
-    fn send_and_forget<P>(&self, in_reply_to: Option<u64>, dest: String, payload: &P) -> u64
-    where
+    fn send_and_forget<P>(
+        &self,
+        msg_id: Option<u64>,
+        in_reply_to: Option<u64>,
+        dest: String,
+        payload: &P,
+    ) where
         P: Serialize,
     {
-        let msg_id = self.next_msg_id.fetch_add(1, Ordering::Relaxed);
         let msg = MaelstromMessage {
             src: node_id(self.id),
             dest,
-            body: Body { msg_id, in_reply_to, payload },
+            body: Body { msg_id: msg_id, in_reply_to, payload },
         };
         let msg = serde_json::to_string(&msg).unwrap();
         println!("{msg}");
-        msg_id
     }
 
     pub fn reply<P, R>(&self, source_msg: &MaelstromMessage<P>, payload: R)
     where
         R: Serialize,
     {
-        self.send_and_forget(Some(source_msg.body.msg_id), source_msg.src.to_string(), &payload);
+        self.send_and_forget(None, source_msg.body.msg_id, source_msg.src.to_string(), &payload);
     }
 
     pub async fn send<P, R>(
@@ -191,8 +195,8 @@ impl Node {
         P: Serialize + Debug,
         R: DeserializeOwned + Debug,
     {
-        eprintln!("Sending request: {:?}", payload);
-        let msg_id = self.send_and_forget(None, dest.to_string(), &payload);
+        let msg_id = self.next_msg_id.fetch_add(1, Ordering::Relaxed);
+        self.send_and_forget(Some(msg_id), None, dest.to_string(), &payload);
         // Set up channel to receive respone
         let (tx, rx) = oneshot::channel();
         // Store sender on map with msg_id
@@ -201,6 +205,7 @@ impl Node {
         if let Some(timeout_duration) = timeout_duration {
             tokio::select! {
                 _ = self.cancellation_token.cancelled() => {
+                    // TODO error?
                     Err(MaelstromError::node_not_found("Node shut down."))
                 }
                 res = timeout(timeout_duration, rx) => {
@@ -210,18 +215,13 @@ impl Node {
                             Err(MaelstromError::timeout("Timed out waiting for response"))
                         }
                         Ok(response) => {
-                            let response = response.unwrap();
-                            eprintln!("Received response: {:?}", response);
-                            let msg = serde_json::from_str::<MaelstromMessage<Fallible<R>>>(&response).unwrap();
-                            Ok(msg)
+                            Ok(serde_json::from_str::<MaelstromMessage<Fallible<R>>>(&response.unwrap()).unwrap())
                         }
                     }
                 }
             }
         } else {
-            let msg =
-                serde_json::from_str::<MaelstromMessage<Fallible<R>>>(&rx.await.unwrap()).unwrap();
-            Ok(msg)
+            Ok(serde_json::from_str::<MaelstromMessage<Fallible<R>>>(&rx.await.unwrap()).unwrap())
         }
     }
 }

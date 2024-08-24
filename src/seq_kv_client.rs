@@ -1,8 +1,3 @@
-use std::{
-    collections::BTreeMap,
-    sync::{Arc, Mutex},
-};
-
 use serde::{Deserialize, Serialize};
 
 use crate::{error::MaelstromError, message::Fallible, node::Node};
@@ -10,17 +5,31 @@ use crate::{error::MaelstromError, message::Fallible, node::Node};
 #[derive(Serialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RequestPayload {
-    Read { key: String },
-    Write { key: String, value: String },
-    CompareAndSwap { key: String, from: String, to: String, create_if_not_exists: bool },
+    Read {
+        key: String,
+    },
+    Write {
+        key: String,
+        value: String,
+    },
+    #[serde(rename = "cas")]
+    CompareAndSwap {
+        key: String,
+        from: String,
+        to: String,
+        create_if_not_exists: bool,
+    },
 }
 
 #[allow(clippy::enum_variant_names)]
 #[derive(Deserialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ResponsePayload {
-    ReadOk { value: String },
+    ReadOk {
+        value: String,
+    },
     WriteOk,
+    #[serde(rename = "cas_ok")]
     CompareAndSwapOk,
 }
 
@@ -33,14 +42,7 @@ pub struct SeqKvClient {
 
 impl SeqKvClient {
     pub fn new(node: Node) -> Self {
-        Self {
-            node: Node {
-                id: node.id,
-                next_msg_id: node.next_msg_id,
-                cancellation_token: node.cancellation_token,
-                response_map: Arc::new(Mutex::new(BTreeMap::new())),
-            },
-        }
+        Self { node }
     }
 
     pub async fn read(&self, key: String) -> Result<String, MaelstromError> {
@@ -58,7 +60,9 @@ impl SeqKvClient {
         let response = self.node.send("seq-kv", RequestPayload::Read { key }, None).await?;
         match response.body.payload {
             Fallible::Ok(ResponsePayload::ReadOk { value }) => Ok(value.parse().unwrap()),
-            Fallible::Ok(_) => panic!("Invalid response"),
+            Fallible::Ok(_) => {
+                panic!("Invalid response");
+            }
             Fallible::Err(e) => Err(e),
         }
     }

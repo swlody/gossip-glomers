@@ -1,7 +1,5 @@
 use gossip_glomers::{
-    error::{MaelstromError, MaelstromErrorType},
-    seq_kv_client::SeqKvClient,
-    Handler, MaelstromMessage, Node,
+    error::MaelstromError, seq_kv_client::SeqKvClient, Handler, MaelstromMessage, Node,
 };
 use serde::{Deserialize, Serialize};
 
@@ -29,6 +27,8 @@ impl Handler<RequestPayload> for CounterHandler {
         &self,
         counter_msg: &MaelstromMessage<RequestPayload>,
     ) -> Result<(), MaelstromError> {
+        // TODO timeout and keep local count?
+        // "given a few seconds without writes, converge on the correct value"
         match counter_msg.body.payload {
             RequestPayload::Add { delta } => {
                 loop {
@@ -39,29 +39,38 @@ impl Handler<RequestPayload> for CounterHandler {
                         .client
                         .compare_and_swap(
                             "counter".to_string(),
-                            if current_value == 0 {
-                                "".to_string()
-                            } else {
-                                current_value.to_string()
-                            },
+                            current_value.to_string(),
                             new_value.to_string(),
                             true,
                         )
                         .await;
                     match res {
-                        Err(MaelstromError {
-                            error_type: MaelstromErrorType::PreconditionFailed,
-                            ..
-                        }) => continue,
-                        // TODO no panic here
-                        Err(_) => panic!("Invalid response"),
-                        Ok(_) => break,
+                        Err(MaelstromError { code: 22, .. }) => {
+                            continue;
+                        }
+                        Err(MaelstromError { code: 20, .. }) => {
+                            break;
+                        }
+                        Err(_) => {
+                            // TODO no panic here
+                            panic!("Invalid response");
+                        }
+                        Ok(_) => {
+                            break;
+                        }
                     }
                 }
                 self.node.reply(counter_msg, ResponsePayload::AddOk);
             }
             RequestPayload::Read => {
-                let value = self.client.read_int("counter".to_string()).await.unwrap_or(0);
+                eprintln!("Received read, issuing request");
+                let value = match self.client.read_int("counter".to_string()).await {
+                    Ok(v) => v,
+                    Err(MaelstromError { code: 20, .. }) => 0,
+                    Err(_) => {
+                        panic!("Invalid response");
+                    }
+                };
                 self.node.reply(counter_msg, ResponsePayload::ReadOk { value });
             }
         }
