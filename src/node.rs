@@ -101,18 +101,18 @@ impl Node {
             let line = line?;
             // Deserialize message from input
 
-            // TODO I don't love this, is there a better way?
-            let in_reply_to: Option<u64> = serde_json::from_str::<Value>(&line)
-                .unwrap()
-                .get("body")
-                .unwrap()
-                .get("in_reply_to")
-                .and_then(|v| serde_json::from_value(v.clone()).ok());
-
             // Spawn new task to handle input so we can keep processing more messages
             let handler = handler.clone();
             let node = self.clone();
             tracker.spawn(async move {
+                // TODO I don't love this, is there a better way?
+                let in_reply_to: Option<u64> = serde_json::from_str::<Value>(&line)
+                    .unwrap()
+                    .get("body")
+                    .unwrap()
+                    .get("in_reply_to")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok());
+
                 // If the received message is in response to an existing message,
                 // send the response to whichever task is waiting for it
                 if let Some(in_reply_to) = in_reply_to {
@@ -215,15 +215,14 @@ impl Node {
                             Err(MaelstromError::timeout("Timed out waiting for response"))
                         }
                         Ok(response) => {
-                            let response: MaelstromMessage<Fallible<R>> = serde_json::from_str(&response.unwrap()).unwrap();
+                            let response: MaelstromMessage<Fallible<R>> = serde_json::from_str(&response.unwrap())?;
                             Ok(response)
                         }
                     }
                 }
             }
         } else {
-            let response: MaelstromMessage<Fallible<R>> =
-                serde_json::from_str(&rx.await.unwrap()).unwrap();
+            let response: MaelstromMessage<Fallible<R>> = serde_json::from_str(&rx.await.unwrap())?;
             Ok(response)
         }
     }

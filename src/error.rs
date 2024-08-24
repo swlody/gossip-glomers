@@ -11,6 +11,12 @@ pub struct MaelstromError {
     pub code: u32,
 }
 
+impl From<serde_json::Error> for MaelstromError {
+    fn from(err: serde_json::Error) -> Self {
+        Self { text: err.to_string(), code: error_type::MALFORMED_REQUEST }
+    }
+}
+
 impl fmt::Display for MaelstromError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let code_name = match self.code {

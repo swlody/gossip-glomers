@@ -58,7 +58,9 @@ impl SeqKvClient {
     pub async fn read_int(&self, key: String) -> Result<i64, MaelstromError> {
         let response = self.node.send("seq-kv", RequestPayload::Read { key }, None).await?;
         match response.body.payload {
-            Fallible::Ok(ResponsePayload::ReadOk { value }) => Ok(value.parse().unwrap()),
+            Fallible::Ok(ResponsePayload::ReadOk { value }) => Ok(value.parse().map_err(|_| {
+                MaelstromError::malformed_request("Invalid response to read request")
+            })?),
             Fallible::Err(err) => Err(err),
             _ => Err(MaelstromError::not_supported("Invalid response to read request")),
         }
