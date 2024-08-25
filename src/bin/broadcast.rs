@@ -5,7 +5,6 @@ use std::{
 
 use gossip_glomers::{
     error::{error_type, MaelstromError},
-    message::{Body, Fallible},
     node_id, parse_node_id, Handler, MaelstromMessage, Node,
 };
 use serde::{Deserialize, Serialize};
@@ -66,14 +65,11 @@ impl BroadcastHandler {
                         .send(&node_id(neighbor), RequestPayload::Gossip { message }, Some(timeout))
                         .await;
                     match res {
-                        Ok(MaelstromMessage {
-                            body: Body { payload: Fallible::Ok(ResponsePayload::GossipOk), .. },
-                            ..
-                        }) => {
+                        Ok(ResponsePayload::GossipOk) => {
                             // On ack, return
                             return Ok(());
                         }
-                        Err(e) if e.code == error_type::TIMEOUT => {
+                        Err(MaelstromError { code: error_type::TIMEOUT, .. }) => {
                             // Backoff timeout by 100ms per failure
                             timeout += Duration::from_millis(100);
                             continue;
@@ -100,21 +96,21 @@ impl Handler<RequestPayload> for BroadcastHandler {
             RequestPayload::Broadcast { message } => {
                 // Store message in local set
                 self.seen_messages.write().unwrap().insert(*message);
-                // Confirm that we received and stored message
-                self.node.reply(broadcast_msg, ResponsePayload::BroadcastOk);
                 // Propagate message to neighbors
                 self.gossip(*message, None).await?;
+                // Confirm that we received and stored message
+                self.node.reply(broadcast_msg, ResponsePayload::BroadcastOk);
             }
             RequestPayload::Gossip { message } => {
                 // Received propagation message, store it in local set
                 let inserted = self.seen_messages.write().unwrap().insert(*message);
-                // Confirm receipt of gossip message.
-                self.node.reply(broadcast_msg, ResponsePayload::GossipOk);
                 // If we haven't seen the message already, propagate to neighbors.
                 // If we have seen it already, we've already propagated, so do nothing.
                 if inserted {
                     self.gossip(*message, Some(parse_node_id(&broadcast_msg.src)?)).await?;
                 }
+                // Confirm receipt of gossip message.
+                self.node.reply(broadcast_msg, ResponsePayload::GossipOk);
             }
             RequestPayload::Read => {
                 // Respond with list of received messages

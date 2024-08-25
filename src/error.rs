@@ -3,6 +3,8 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+// TODO generally be more deliberate about not leaking internal errors
+// errors are hard!
 #[allow(clippy::module_name_repetitions)]
 #[derive(Error, Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type", rename = "error")]

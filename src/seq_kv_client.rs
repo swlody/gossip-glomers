@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{error::MaelstromError, message::Fallible, node::Node};
+use crate::{error::MaelstromError, node::Node};
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -40,6 +40,7 @@ pub struct SeqKvClient {
     node: Node,
 }
 
+// TODO support other maelstrom services
 impl SeqKvClient {
     pub fn new(node: Node) -> Self {
         Self { node }
@@ -47,30 +48,30 @@ impl SeqKvClient {
 
     pub async fn read(&self, key: String) -> Result<String, MaelstromError> {
         // Issue a read reqeust to seq-kv service and return the response
-        let response = self.node.send("seq-kv", RequestPayload::Read { key }, None).await?;
-        match response.body.payload {
-            Fallible::Ok(ResponsePayload::ReadOk { value }) => Ok(value),
-            Fallible::Err(err) => Err(err),
+        let response = self.node.send("seq-kv", RequestPayload::Read { key }, None).await;
+        match response {
+            Ok(ResponsePayload::ReadOk { value }) => Ok(value),
+            Err(err) => Err(err),
             _ => Err(MaelstromError::not_supported("Invalid response to read request")),
         }
     }
 
     pub async fn read_int(&self, key: String) -> Result<i64, MaelstromError> {
-        let response = self.node.send("seq-kv", RequestPayload::Read { key }, None).await?;
-        match response.body.payload {
-            Fallible::Ok(ResponsePayload::ReadOk { value }) => Ok(value.parse().map_err(|_| {
+        let response = self.node.send("seq-kv", RequestPayload::Read { key }, None).await;
+        match response {
+            Ok(ResponsePayload::ReadOk { value }) => Ok(value.parse().map_err(|_| {
                 MaelstromError::malformed_request("Invalid response to read request")
             })?),
-            Fallible::Err(err) => Err(err),
+            Err(err) => Err(err),
             _ => Err(MaelstromError::not_supported("Invalid response to read request")),
         }
     }
 
     pub async fn write(&self, key: String, value: String) -> Result<(), MaelstromError> {
-        let response = self.node.send("seq-kv", RequestPayload::Write { key, value }, None).await?;
-        match response.body.payload {
-            Fallible::Ok(ResponsePayload::WriteOk) => Ok(()),
-            Fallible::Err(err) => Err(err),
+        let response = self.node.send("seq-kv", RequestPayload::Write { key, value }, None).await;
+        match response {
+            Ok(ResponsePayload::WriteOk) => Ok(()),
+            Err(err) => Err(err),
             _ => Err(MaelstromError::not_supported("Invalid response to write request")),
         }
     }
@@ -82,7 +83,6 @@ impl SeqKvClient {
         to: String,
         create_if_not_exists: bool,
     ) -> Result<(), MaelstromError> {
-        // TODO conflating client vs server errors here
         let response = self
             .node
             .send(
@@ -90,10 +90,10 @@ impl SeqKvClient {
                 RequestPayload::CompareAndSwap { key, from, to, create_if_not_exists },
                 None,
             )
-            .await?;
-        match response.body.payload {
-            Fallible::Ok(ResponsePayload::CompareAndSwapOk) => Ok(()),
-            Fallible::Err(err) => Err(err),
+            .await;
+        match response {
+            Ok(ResponsePayload::CompareAndSwapOk) => Ok(()),
+            Err(err) => Err(err),
             _ => Err(MaelstromError::not_supported("Invalid response to CAS request")),
         }
     }

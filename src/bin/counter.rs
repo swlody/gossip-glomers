@@ -59,17 +59,16 @@ impl Handler<RequestPayload> for CounterHandler {
                         Ok(()) => {
                             break;
                         }
-                        Err(_) => return Err(MaelstromError::not_supported("Invalid response")),
+                        Err(e) => return Err(MaelstromError::not_supported(e.to_string())),
                     }
                 }
                 self.node.reply(counter_msg, ResponsePayload::AddOk);
             }
             RequestPayload::Read => {
-                eprintln!("Received read, issuing request");
                 let value = match self.client.read_int("counter".to_string()).await {
                     Ok(v) => v,
                     Err(MaelstromError { code: error_type::KEY_DOES_NOT_EXIST, .. }) => 0,
-                    Err(_) => return Err(MaelstromError::not_supported("Invalid response")),
+                    Err(e) => return Err(MaelstromError::not_supported(e.to_string())),
                 };
                 self.node.reply(counter_msg, ResponsePayload::ReadOk { value });
             }
