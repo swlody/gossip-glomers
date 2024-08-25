@@ -26,7 +26,7 @@ enum RequestPayload {
 enum ResponsePayload {
     // Client responses
     BroadcastOk,
-    ReadOk { messages: BTreeSet<u64> },
+    ReadOk { messages: Vec<u64> },
     TopologyOk,
     GossipOk,
 }
@@ -56,6 +56,8 @@ impl BroadcastHandler {
             //since it may take a long time to receive a response
             let node = self.node.clone();
             // TODO task tracking like in main node run loop?
+            // TODO efficiency: store a list of messages to be delivered to each node,
+            // ensure only one task is running per node
             tokio::spawn(async move {
                 // Start with 100 second timeout
                 let mut timeout = Duration::from_millis(100);
@@ -71,6 +73,9 @@ impl BroadcastHandler {
                         }
                         Err(MaelstromError { code: error_type::TIMEOUT, .. }) => {
                             // Backoff timeout by 100ms per failure
+                            // TODO efficiency: if some other task started gossip to target, we can
+                            // cancel
+
                             timeout += Duration::from_millis(100);
                             continue;
                         }
@@ -117,7 +122,7 @@ impl Handler<RequestPayload> for BroadcastHandler {
                 self.node.reply(
                     broadcast_msg,
                     ResponsePayload::ReadOk {
-                        messages: self.seen_messages.read().unwrap().clone(),
+                        messages: self.seen_messages.read().unwrap().iter().copied().collect(),
                     },
                 );
             }

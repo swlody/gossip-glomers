@@ -37,15 +37,14 @@ impl Handler<RequestPayload> for CounterHandler {
         match counter_msg.body.payload {
             RequestPayload::Add { delta } => {
                 loop {
-                    let current_value =
-                        self.client.read_int("counter".to_string()).await.unwrap_or(0);
+                    let current_value = self.client.read_int("counter").await.unwrap_or(0);
                     let new_value = current_value + delta;
                     let res = self
                         .client
                         .compare_and_swap(
-                            "counter".to_string(),
-                            current_value.to_string(),
-                            new_value.to_string(),
+                            "counter",
+                            &current_value.to_string(),
+                            &new_value.to_string(),
                             true,
                         )
                         .await;
@@ -53,10 +52,8 @@ impl Handler<RequestPayload> for CounterHandler {
                         Err(MaelstromError { code: error_type::PRECONDITION_FAILED, .. }) => {
                             continue;
                         }
-                        Err(MaelstromError { code: error_type::KEY_DOES_NOT_EXIST, .. }) => {
-                            break;
-                        }
-                        Ok(()) => {
+                        Ok(())
+                        | Err(MaelstromError { code: error_type::KEY_DOES_NOT_EXIST, .. }) => {
                             break;
                         }
                         Err(e) => return Err(MaelstromError::not_supported(e.to_string())),
@@ -65,7 +62,7 @@ impl Handler<RequestPayload> for CounterHandler {
                 self.node.reply(counter_msg, ResponsePayload::AddOk);
             }
             RequestPayload::Read => {
-                let value = match self.client.read_int("counter".to_string()).await {
+                let value = match self.client.read_int("counter").await {
                     Ok(v) => v,
                     Err(MaelstromError { code: error_type::KEY_DOES_NOT_EXIST, .. }) => 0,
                     Err(e) => return Err(MaelstromError::not_supported(e.to_string())),

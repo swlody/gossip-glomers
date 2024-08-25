@@ -4,19 +4,19 @@ use crate::{error::MaelstromError, node::Node};
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum RequestPayload {
+pub enum RequestPayload<'a> {
     Read {
-        key: String,
+        key: &'a str,
     },
     Write {
-        key: String,
-        value: String,
+        key: &'a str,
+        value: &'a str,
     },
     #[serde(rename = "cas")]
     CompareAndSwap {
-        key: String,
-        from: String,
-        to: String,
+        key: &'a str,
+        from: &'a str,
+        to: &'a str,
         create_if_not_exists: bool,
     },
 }
@@ -46,7 +46,7 @@ impl SeqKvClient {
         Self { node }
     }
 
-    pub async fn read(&self, key: String) -> Result<String, MaelstromError> {
+    pub async fn read(&self, key: &str) -> Result<String, MaelstromError> {
         // Issue a read reqeust to seq-kv service and return the response
         let response = self.node.send("seq-kv", RequestPayload::Read { key }, None).await;
         match response {
@@ -56,7 +56,7 @@ impl SeqKvClient {
         }
     }
 
-    pub async fn read_int(&self, key: String) -> Result<i64, MaelstromError> {
+    pub async fn read_int(&self, key: &str) -> Result<i64, MaelstromError> {
         let response = self.node.send("seq-kv", RequestPayload::Read { key }, None).await;
         match response {
             Ok(ResponsePayload::ReadOk { value }) => Ok(value.parse().map_err(|_| {
@@ -67,7 +67,7 @@ impl SeqKvClient {
         }
     }
 
-    pub async fn write(&self, key: String, value: String) -> Result<(), MaelstromError> {
+    pub async fn write(&self, key: &str, value: &str) -> Result<(), MaelstromError> {
         let response = self.node.send("seq-kv", RequestPayload::Write { key, value }, None).await;
         match response {
             Ok(ResponsePayload::WriteOk) => Ok(()),
@@ -78,9 +78,9 @@ impl SeqKvClient {
 
     pub async fn compare_and_swap(
         &self,
-        key: String,
-        from: String,
-        to: String,
+        key: &str,
+        from: &str,
+        to: &str,
         create_if_not_exists: bool,
     ) -> Result<(), MaelstromError> {
         let response = self
