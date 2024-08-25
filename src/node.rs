@@ -188,7 +188,11 @@ impl Node {
         let msg = MaelstromMessage {
             src: node_id(self.id),
             dest,
-            body: Body { msg_id, in_reply_to, payload },
+            body: Body {
+                msg_id,
+                in_reply_to,
+                payload,
+            },
         };
         let msg = serde_json::to_string(&msg).unwrap();
         println!("{msg}");
@@ -198,7 +202,12 @@ impl Node {
     where
         R: Serialize,
     {
-        self.send_and_forget(None, source_msg.body.msg_id, source_msg.src.to_string(), &payload);
+        self.send_and_forget(
+            None,
+            source_msg.body.msg_id,
+            source_msg.src.to_string(),
+            &payload,
+        );
     }
 
     pub async fn send<P, R>(

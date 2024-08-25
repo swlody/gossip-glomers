@@ -14,10 +14,16 @@ use tokio::time::Duration;
 #[serde(tag = "type", rename_all = "snake_case")]
 enum RequestPayload {
     // Client requests
-    Broadcast { message: u64 },
+    Broadcast {
+        message: u64,
+    },
     Read,
-    Topology { topology: BTreeMap<String, Vec<String>> },
-    Gossip { message: u64 },
+    Topology {
+        topology: BTreeMap<String, Vec<String>>,
+    },
+    Gossip {
+        message: u64,
+    },
 }
 
 #[allow(clippy::enum_variant_names)]
@@ -64,14 +70,21 @@ impl BroadcastHandler {
                 loop {
                     // Send message and wait for response
                     let res = node
-                        .send(&node_id(neighbor), RequestPayload::Gossip { message }, Some(timeout))
+                        .send(
+                            &node_id(neighbor),
+                            RequestPayload::Gossip { message },
+                            Some(timeout),
+                        )
                         .await;
                     match res {
                         Ok(ResponsePayload::GossipOk) => {
                             // On ack, return
                             return Ok(());
                         }
-                        Err(MaelstromError { code: error_type::TIMEOUT, .. }) => {
+                        Err(MaelstromError {
+                            code: error_type::TIMEOUT,
+                            ..
+                        }) => {
                             // Backoff timeout by 100ms per failure
                             // TODO efficiency: if some other task started gossip to target, we can
                             // cancel
@@ -112,7 +125,8 @@ impl Handler<RequestPayload> for BroadcastHandler {
                 // If we haven't seen the message already, propagate to neighbors.
                 // If we have seen it already, we've already propagated, so do nothing.
                 if inserted {
-                    self.gossip(*message, Some(parse_node_id(&broadcast_msg.src)?)).await?;
+                    self.gossip(*message, Some(parse_node_id(&broadcast_msg.src)?))
+                        .await?;
                 }
                 // Confirm receipt of gossip message.
                 self.node.reply(broadcast_msg, ResponsePayload::GossipOk);

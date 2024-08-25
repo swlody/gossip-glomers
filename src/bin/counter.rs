@@ -49,11 +49,17 @@ impl Handler<RequestPayload> for CounterHandler {
                         )
                         .await;
                     match res {
-                        Err(MaelstromError { code: error_type::PRECONDITION_FAILED, .. }) => {
+                        Err(MaelstromError {
+                            code: error_type::PRECONDITION_FAILED,
+                            ..
+                        }) => {
                             continue;
                         }
                         Ok(())
-                        | Err(MaelstromError { code: error_type::KEY_DOES_NOT_EXIST, .. }) => {
+                        | Err(MaelstromError {
+                            code: error_type::KEY_DOES_NOT_EXIST,
+                            ..
+                        }) => {
                             break;
                         }
                         Err(e) => return Err(MaelstromError::not_supported(e.to_string())),
@@ -64,10 +70,14 @@ impl Handler<RequestPayload> for CounterHandler {
             RequestPayload::Read => {
                 let value = match self.client.read_int("counter").await {
                     Ok(v) => v,
-                    Err(MaelstromError { code: error_type::KEY_DOES_NOT_EXIST, .. }) => 0,
+                    Err(MaelstromError {
+                        code: error_type::KEY_DOES_NOT_EXIST,
+                        ..
+                    }) => 0,
                     Err(e) => return Err(MaelstromError::not_supported(e.to_string())),
                 };
-                self.node.reply(counter_msg, ResponsePayload::ReadOk { value });
+                self.node
+                    .reply(counter_msg, ResponsePayload::ReadOk { value });
             }
         }
 
@@ -79,6 +89,9 @@ impl Handler<RequestPayload> for CounterHandler {
 async fn main() -> eyre::Result<()> {
     let node = Node::init().await?;
     // TODO reduce node cloning?
-    let handler = CounterHandler { node: node.clone(), client: SeqKvClient::new(node.clone()) };
+    let handler = CounterHandler {
+        node: node.clone(),
+        client: SeqKvClient::new(node.clone()),
+    };
     node.run(handler).await
 }

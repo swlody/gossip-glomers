@@ -37,7 +37,9 @@ impl Handler<RequestPayload> for UniqueIdHandler {
             RequestPayload::Generate => {
                 self.node.reply(
                     generate_msg,
-                    ResponsePayload::GenerateOk { id: make_uuid(self.node.id) },
+                    ResponsePayload::GenerateOk {
+                        id: make_uuid(self.node.id),
+                    },
                 );
             }
         }

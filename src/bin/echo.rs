@@ -25,7 +25,12 @@ impl Handler<RequestPayload> for EchoHandler {
     ) -> Result<(), MaelstromError> {
         match &echo_msg.body.payload {
             RequestPayload::Echo { echo } => {
-                self.node.reply(echo_msg, ResponsePayload::EchoOk { echo: echo.to_string() });
+                self.node.reply(
+                    echo_msg,
+                    ResponsePayload::EchoOk {
+                        echo: echo.to_string(),
+                    },
+                );
             }
         }
 
