@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+#[allow(clippy::module_name_repetitions)]
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct MaelstromMessage<P> {
     pub src: String,

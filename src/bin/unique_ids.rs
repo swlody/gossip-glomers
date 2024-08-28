@@ -50,7 +50,7 @@ impl Handler<RequestPayload> for UniqueIdHandler {
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    let node = Node::init().await?;
+    let node = Node::init()?;
     let handler = UniqueIdHandler { node: node.clone() };
-    node.run(handler).await
+    Ok(node.run(handler).await?)
 }

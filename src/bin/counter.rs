@@ -1,7 +1,7 @@
 use gossip_glomers::{
     error::{
         error_type::{self},
-        MaelstromError,
+        GlomerError, MaelstromError,
     },
     seq_kv_client::SeqKvClient,
     Handler, MaelstromMessage, Node,
@@ -32,8 +32,6 @@ impl Handler<RequestPayload> for CounterHandler {
         &self,
         counter_msg: &MaelstromMessage<RequestPayload>,
     ) -> Result<(), MaelstromError> {
-        // TODO timeout and keep local count?
-        // "given a few seconds without writes, converge on the correct value"
         match counter_msg.body.payload {
             RequestPayload::Add { delta } => {
                 loop {
@@ -49,20 +47,20 @@ impl Handler<RequestPayload> for CounterHandler {
                         )
                         .await;
                     match res {
-                        Err(MaelstromError {
+                        Err(GlomerError::Maelstrom(MaelstromError {
                             code: error_type::PRECONDITION_FAILED,
                             ..
-                        }) => {
+                        })) => {
                             continue;
                         }
                         Ok(())
-                        | Err(MaelstromError {
+                        | Err(GlomerError::Maelstrom(MaelstromError {
                             code: error_type::KEY_DOES_NOT_EXIST,
                             ..
-                        }) => {
+                        })) => {
                             break;
                         }
-                        Err(e) => return Err(MaelstromError::not_supported(e.to_string())),
+                        Err(e) => return Err(e.into()),
                     }
                 }
                 self.node.reply(counter_msg, ResponsePayload::AddOk);
@@ -70,11 +68,11 @@ impl Handler<RequestPayload> for CounterHandler {
             RequestPayload::Read => {
                 let value = match self.client.read_int("counter").await {
                     Ok(v) => v,
-                    Err(MaelstromError {
+                    Err(GlomerError::Maelstrom(MaelstromError {
                         code: error_type::KEY_DOES_NOT_EXIST,
                         ..
-                    }) => 0,
-                    Err(e) => return Err(MaelstromError::not_supported(e.to_string())),
+                    })) => 0,
+                    Err(e) => return Err(e.into()),
                 };
                 self.node
                     .reply(counter_msg, ResponsePayload::ReadOk { value });
@@ -87,11 +85,11 @@ impl Handler<RequestPayload> for CounterHandler {
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    let node = Node::init().await?;
+    let node = Node::init()?;
     // TODO reduce node cloning?
     let handler = CounterHandler {
         node: node.clone(),
         client: SeqKvClient::new(node.clone()),
     };
-    node.run(handler).await
+    Ok(node.run(handler).await?)
 }

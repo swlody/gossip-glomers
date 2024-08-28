@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{error::MaelstromError, node::Node};
+use crate::{
+    error::{error_type, GlomerError, MaelstromError},
+    node::Node,
+};
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -43,55 +46,62 @@ pub struct SeqKvClient {
 
 // TODO support other maelstrom services
 impl SeqKvClient {
-    pub fn new(node: Node) -> Self {
+    #[must_use]
+    pub const fn new(node: Node) -> Self {
         Self {
             node,
             name: "seq-kv",
         }
     }
 
-    pub async fn read(&self, key: &str) -> Result<String, MaelstromError> {
+    pub async fn read(&self, key: &str) -> Result<String, GlomerError> {
         // Issue a read reqeust to seq-kv service and return the response
         let response = self
             .node
-            .send(self.name, RequestPayload::Read { key }, None)
+            .send_rpc(self.name, RequestPayload::Read { key }, None)
             .await;
         match response {
             Ok(ResponsePayload::ReadOk { value }) => Ok(value),
-            Err(err) => Err(err),
-            _ => Err(MaelstromError::not_supported(
-                "Invalid response to read request",
+
+            // TODO is it possible to merge these branches?
+            Ok(_) => Err(GlomerError::Unsupported(
+                "Invalid response to read request".into(),
             )),
+            Err(GlomerError::Maelstrom(MaelstromError { code, .. }))
+                if code != error_type::KEY_DOES_NOT_EXIST =>
+            {
+                Err(GlomerError::Unsupported(
+                    "Invalid response to read request".into(),
+                ))
+            }
+
+            Err(e) => Err(e),
         }
     }
 
-    pub async fn read_int(&self, key: &str) -> Result<i64, MaelstromError> {
-        let response = self
-            .node
-            .send(self.name, RequestPayload::Read { key }, None)
-            .await;
-        match response {
-            Ok(ResponsePayload::ReadOk { value }) => Ok(value.parse().map_err(|_| {
-                MaelstromError::malformed_request("Invalid response to read request")
-            })?),
-            Err(err) => Err(err),
-            _ => Err(MaelstromError::not_supported(
-                "Invalid response to read request",
-            )),
+    pub async fn read_int(&self, key: &str) -> Result<i64, GlomerError> {
+        match self.read(key).await {
+            Ok(value) => Ok(value
+                .parse::<i64>()
+                // TODO Parse error implies error in parsing message
+                // this is an error in parsing something that we stored internally,
+                // trying to read an int from something that is not an int
+                .map_err(|e| GlomerError::Parse(e.to_string()))?),
+            Err(e) => Err(e),
         }
     }
 
-    pub async fn write(&self, key: &str, value: &str) -> Result<(), MaelstromError> {
+    pub async fn write(&self, key: &str, value: &str) -> Result<(), GlomerError> {
         let response = self
             .node
-            .send(self.name, RequestPayload::Write { key, value }, None)
+            .send_rpc(self.name, RequestPayload::Write { key, value }, None)
             .await;
         match response {
             Ok(ResponsePayload::WriteOk) => Ok(()),
-            Err(err) => Err(err),
-            _ => Err(MaelstromError::not_supported(
-                "Invalid response to write request",
+            Ok(_) | Err(GlomerError::Maelstrom(_)) => Err(GlomerError::Unsupported(
+                "Invalid response to write request".into(),
             )),
+            Err(e) => Err(e),
         }
     }
 
@@ -101,10 +111,10 @@ impl SeqKvClient {
         from: &str,
         to: &str,
         create_if_not_exists: bool,
-    ) -> Result<(), MaelstromError> {
+    ) -> Result<(), GlomerError> {
         let response = self
             .node
-            .send(
+            .send_rpc(
                 self.name,
                 RequestPayload::CompareAndSwap {
                     key,
@@ -117,10 +127,18 @@ impl SeqKvClient {
             .await;
         match response {
             Ok(ResponsePayload::CompareAndSwapOk) => Ok(()),
-            Err(err) => Err(err),
-            _ => Err(MaelstromError::not_supported(
-                "Invalid response to CAS request",
+            Ok(_) => Err(GlomerError::Unsupported(
+                "Invalid response to compare and swap request".into(),
             )),
+            Err(GlomerError::Maelstrom(MaelstromError { code, .. }))
+                if code != error_type::PRECONDITION_FAILED
+                    && code != error_type::KEY_DOES_NOT_EXIST =>
+            {
+                Err(GlomerError::Unsupported(
+                    "Invalid response to compare and swap request".into(),
+                ))
+            }
+            Err(e) => Err(e),
         }
     }
 }

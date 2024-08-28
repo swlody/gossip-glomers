@@ -4,7 +4,7 @@ use std::{
 };
 
 use gossip_glomers::{
-    error::{error_type, MaelstromError},
+    error::{GlomerError, MaelstromError},
     node_id, parse_node_id, Handler, MaelstromMessage, Node,
 };
 use serde::{Deserialize, Serialize};
@@ -44,7 +44,7 @@ struct BroadcastHandler {
 }
 
 impl BroadcastHandler {
-    async fn gossip(&self, message: u64, src: Option<u32>) -> Result<(), MaelstromError> {
+    fn gossip(&self, message: u64, src: Option<u32>) -> Result<(), MaelstromError> {
         // For each of our direct neighbors
         // (excluding the one which we received the gossip message from...)
         for &neighbor in self
@@ -62,15 +62,13 @@ impl BroadcastHandler {
             //since it may take a long time to receive a response
             let node = self.node.clone();
             // TODO task tracking like in main node run loop?
-            // TODO efficiency: store a list of messages to be delivered to each node,
-            // ensure only one task is running per node
             tokio::spawn(async move {
                 // Start with 100 second timeout
                 let mut timeout = Duration::from_millis(100);
                 loop {
                     // Send message and wait for response
                     let res = node
-                        .send(
+                        .send_rpc(
                             &node_id(neighbor),
                             RequestPayload::Gossip { message },
                             Some(timeout),
@@ -81,14 +79,8 @@ impl BroadcastHandler {
                             // On ack, return
                             return Ok(());
                         }
-                        Err(MaelstromError {
-                            code: error_type::TIMEOUT,
-                            ..
-                        }) => {
+                        Err(GlomerError::Timeout) => {
                             // Backoff timeout by 100ms per failure
-                            // TODO efficiency: if some other task started gossip to target, we can
-                            // cancel
-
                             timeout += Duration::from_millis(100);
                             continue;
                         }
@@ -115,7 +107,7 @@ impl Handler<RequestPayload> for BroadcastHandler {
                 // Store message in local set
                 self.seen_messages.write().unwrap().insert(*message);
                 // Propagate message to neighbors
-                self.gossip(*message, None).await?;
+                self.gossip(*message, None)?;
                 // Confirm that we received and stored message
                 self.node.reply(broadcast_msg, ResponsePayload::BroadcastOk);
             }
@@ -125,8 +117,7 @@ impl Handler<RequestPayload> for BroadcastHandler {
                 // If we haven't seen the message already, propagate to neighbors.
                 // If we have seen it already, we've already propagated, so do nothing.
                 if inserted {
-                    self.gossip(*message, Some(parse_node_id(&broadcast_msg.src)?))
-                        .await?;
+                    self.gossip(*message, Some(parse_node_id(&broadcast_msg.src)?))?;
                 }
                 // Confirm receipt of gossip message.
                 self.node.reply(broadcast_msg, ResponsePayload::GossipOk);
@@ -162,11 +153,11 @@ impl Handler<RequestPayload> for BroadcastHandler {
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    let node = Node::init().await?;
+    let node = Node::init()?;
     let handler = BroadcastHandler {
         node: node.clone(),
         seen_messages: RwLock::new(BTreeSet::new()),
         neighbors: OnceLock::new(),
     };
-    node.run(handler).await
+    Ok(node.run(handler).await?)
 }

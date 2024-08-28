@@ -40,7 +40,7 @@ impl Handler<RequestPayload> for EchoHandler {
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    let node = Node::init().await?;
+    let node = Node::init()?;
     let handler = EchoHandler { node: node.clone() };
-    node.run(handler).await
+    Ok(node.run(handler).await?)
 }

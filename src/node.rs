@@ -18,19 +18,21 @@ use tokio::{
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use crate::{
-    error::{error_type, MaelstromError},
+    error::{error_type, GlomerError, MaelstromError},
     message::{Body, MaelstromMessage},
 };
 
+#[allow(clippy::module_name_repetitions)]
+#[must_use]
 pub fn node_id(id: u32) -> String {
     format!("n{id}")
 }
 
-pub fn parse_node_id(id: &str) -> Result<u32, MaelstromError> {
+pub fn parse_node_id(id: &str) -> Result<u32, GlomerError> {
     id.strip_prefix("n")
-        .ok_or_else(|| MaelstromError::malformed_request("Invalid node id"))?
+        .ok_or_else(|| GlomerError::Parse("Invalid node id".into()))?
         .parse()
-        .map_err(|_| MaelstromError::malformed_request("Invalid node id"))
+        .map_err(|_| GlomerError::Parse("Invalid node id".into()))
 }
 
 // Handler trait - user needs to impl these methods to handle messages
@@ -57,22 +59,6 @@ struct Init {
 #[serde(tag = "type", rename = "init_ok")]
 struct InitOk {}
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(untagged)]
-enum Fallible<P> {
-    Ok(P),
-    Err(MaelstromError),
-}
-
-impl<P> From<Fallible<P>> for Result<P, MaelstromError> {
-    fn from(fallible: Fallible<P>) -> Self {
-        match fallible {
-            Fallible::Ok(ok) => Ok(ok),
-            Fallible::Err(err) => Err(err),
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct Node {
     // Out NodeId
@@ -85,7 +71,7 @@ pub struct Node {
 }
 
 impl Node {
-    pub async fn init() -> eyre::Result<Self> {
+    pub fn init() -> Result<Self, GlomerError> {
         let mut buffer = String::new();
         stdin().read_line(&mut buffer)?;
         let init_msg: MaelstromMessage<Init> =
@@ -105,7 +91,7 @@ impl Node {
 
     // Main process loop - initializes node then reads messages from stdin in a loop
     // Will automatically respond to requests with formatted error on handle() error
-    pub async fn run<P, H>(&self, handler: H) -> eyre::Result<()>
+    pub async fn run<P, H>(&self, handler: H) -> Result<(), GlomerError>
     where
         P: DeserializeOwned + Debug + Send + Sync + 'static,
         H: Handler<P> + Send + Sync + 'static,
@@ -136,8 +122,7 @@ impl Node {
                     if let Some(tx) = guard.remove(&in_reply_to) {
                         if let Err(request_msg) = tx.send(line) {
                             eprintln!(
-                                "INFO: Received response after operation timeout: {:?}",
-                                request_msg
+                                "INFO: Received response after operation timeout: {request_msg:?}"
                             );
                         }
                     }
@@ -149,16 +134,16 @@ impl Node {
 
                     let res = tokio::select! {
                         res = handler.handle(&request_msg) => res,
-                        _ = node.cancellation_token.cancelled() => Ok(()),
+                        () = node.cancellation_token.cancelled() => Ok(()),
                     };
 
                     // Serialize and send error message from handler
                     if let Err(err) = res {
                         let error_type = err.code;
-                        node.send_and_forget(None, request_msg.body.msg_id, request_msg.src, &err);
+                        node.fire_and_forget(None, request_msg.body.msg_id, request_msg.src, &err);
 
                         match error_type {
-                            error_type::CRASH | error_type::PRECONDITION_FAILED => {
+                            error_type::CRASH | error_type::ABORT => {
                                 panic!("Unrecoverable error: {}", err.text)
                             }
                             _ => {}
@@ -176,7 +161,7 @@ impl Node {
         Ok(())
     }
 
-    fn send_and_forget<P>(
+    fn fire_and_forget<P>(
         &self,
         msg_id: Option<u64>,
         in_reply_to: Option<u64>,
@@ -202,7 +187,7 @@ impl Node {
     where
         R: Serialize,
     {
-        self.send_and_forget(
+        self.fire_and_forget(
             None,
             source_msg.body.msg_id,
             source_msg.src.to_string(),
@@ -210,18 +195,18 @@ impl Node {
         );
     }
 
-    pub async fn send<P, R>(
+    pub async fn send_rpc<P, R>(
         &self,
         dest: &str,
         payload: P,
         timeout_duration: Option<Duration>,
-    ) -> Result<R, MaelstromError>
+    ) -> Result<R, GlomerError>
     where
-        P: Serialize + Debug,
-        R: DeserializeOwned + Debug + Clone,
+        P: Serialize + Debug + Send,
+        R: DeserializeOwned + Debug,
     {
         let msg_id = self.next_msg_id.fetch_add(1, Ordering::Relaxed);
-        self.send_and_forget(Some(msg_id), None, dest.to_string(), &payload);
+        self.fire_and_forget(Some(msg_id), None, dest.to_string(), &payload);
         // Set up channel to receive respone
         let (tx, rx) = oneshot::channel();
         // Store sender on map with msg_id
@@ -229,28 +214,63 @@ impl Node {
 
         if let Some(timeout_duration) = timeout_duration {
             tokio::select! {
-                _ = self.cancellation_token.cancelled() => {
-                    // TODO error?
-                    Err(MaelstromError::node_not_found("Node shut down."))
+                () = self.cancellation_token.cancelled() => {
+                    Err(GlomerError::Abort("Node shut down.".into()))
                 }
                 res = timeout(timeout_duration, rx) => {
-                    // TODO distinguish between errors returned by RPC destination and errors generated by runtime.
                     match res {
                         Err(_) => {
                             self.response_map.lock().unwrap().remove(&msg_id);
-                            Err(MaelstromError::timeout("Timed out waiting for response"))
+                            Err(GlomerError::Timeout)
                         }
                         Ok(response) => {
-                            let response = serde_json::from_str::<MaelstromMessage<Fallible<R>>>(&response.unwrap())?;
-                            Result::from(response.body.payload)
+                            let response = parse_rpc_message(&response.unwrap())?;
+                            Ok(response.body.payload?)
                         }
                     }
                 }
             }
         } else {
-            let response =
-                serde_json::from_str::<MaelstromMessage<Fallible<R>>>(&rx.await.unwrap())?;
-            Result::from(response.body.payload)
+            let response = parse_rpc_message(&rx.await.unwrap())?;
+            Ok(response.body.payload?)
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+enum UntaggedResult<P> {
+    Ok(P),
+    Err(MaelstromError),
+}
+
+// Intermediate type for serialization/deserialization
+// Since using Result<P, MaelstromError> results in a tagged json object,
+// we need to use an untagged version of Result and then convert.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct UntaggedRpcMessage<P> {
+    src: String,
+    dest: String,
+    body: Body<UntaggedResult<P>>,
+}
+
+fn parse_rpc_message<P>(
+    msg: &str,
+) -> Result<MaelstromMessage<Result<P, MaelstromError>>, GlomerError>
+where
+    P: DeserializeOwned,
+{
+    let untagged = serde_json::from_str::<UntaggedRpcMessage<P>>(msg)?;
+    Ok(MaelstromMessage {
+        src: untagged.src,
+        dest: untagged.dest,
+        body: Body {
+            msg_id: untagged.body.msg_id,
+            in_reply_to: untagged.body.in_reply_to,
+            payload: match untagged.body.payload {
+                UntaggedResult::Ok(payload) => Ok(payload),
+                UntaggedResult::Err(err) => Err(err),
+            },
+        },
+    })
 }

@@ -1,10 +1,33 @@
-use std::fmt;
+use std::{fmt, io};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-// TODO generally be more deliberate about not leaking internal errors
-// errors are hard!
+#[allow(clippy::module_name_repetitions)]
+#[derive(Error, Debug)]
+pub enum GlomerError {
+    #[error(transparent)]
+    Io(#[from] io::Error),
+
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+
+    #[error("Operation timed out")]
+    Timeout,
+
+    #[error(transparent)]
+    Maelstrom(#[from] MaelstromError),
+
+    #[error("Unable to parse message: {0}")]
+    Parse(String),
+
+    #[error("Operation is unsupported {0}")]
+    Unsupported(String),
+
+    #[error("{0}")]
+    Abort(String),
+}
+
 #[allow(clippy::module_name_repetitions)]
 #[derive(Error, Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type", rename = "error")]
@@ -13,11 +36,11 @@ pub struct MaelstromError {
     pub code: u32,
 }
 
-impl From<serde_json::Error> for MaelstromError {
-    fn from(err: serde_json::Error) -> Self {
+impl From<GlomerError> for MaelstromError {
+    fn from(err: GlomerError) -> Self {
         Self {
             text: err.to_string(),
-            code: error_type::MALFORMED_REQUEST,
+            code: error_type::ABORT,
         }
     }
 }
@@ -42,6 +65,7 @@ impl fmt::Display for MaelstromError {
     }
 }
 
+#[allow(clippy::module_name_repetitions)]
 pub mod error_type {
     pub const TIMEOUT: u32 = 0;
     pub const NODE_NOT_FOUND: u32 = 1;
