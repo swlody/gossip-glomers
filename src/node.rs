@@ -195,6 +195,14 @@ impl Node {
         );
     }
 
+    pub fn send<P>(&self, dest: &str, payload: P)
+    where
+        P: Serialize + Debug,
+    {
+        let msg_id = self.next_msg_id.fetch_add(1, Ordering::Relaxed);
+        self.fire_and_forget(Some(msg_id), None, dest.to_string(), &payload);
+    }
+
     pub async fn send_rpc<P, R>(
         &self,
         dest: &str,
@@ -224,15 +232,21 @@ impl Node {
                             Err(GlomerError::Timeout)
                         }
                         Ok(response) => {
-                            let response = parse_rpc_message(&response.unwrap())?;
-                            Ok(response.body.payload?)
+                            let untagged = serde_json::from_str::<UntaggedRpcMessage<R>>(&response.unwrap())?;
+                            match untagged.body.payload {
+                                UntaggedResult::Ok(payload) => Ok(payload),
+                                UntaggedResult::Err(err) => Err(GlomerError::Maelstrom(err)),
+                            }
                         }
                     }
                 }
             }
         } else {
-            let response = parse_rpc_message(&rx.await.unwrap())?;
-            Ok(response.body.payload?)
+            let untagged = serde_json::from_str::<UntaggedRpcMessage<R>>(&rx.await.unwrap())?;
+            match untagged.body.payload {
+                UntaggedResult::Ok(payload) => Ok(payload),
+                UntaggedResult::Err(err) => Err(GlomerError::Maelstrom(err)),
+            }
         }
     }
 }
@@ -252,25 +266,4 @@ struct UntaggedRpcMessage<P> {
     src: String,
     dest: String,
     body: Body<UntaggedResult<P>>,
-}
-
-fn parse_rpc_message<P>(
-    msg: &str,
-) -> Result<MaelstromMessage<Result<P, MaelstromError>>, GlomerError>
-where
-    P: DeserializeOwned,
-{
-    let untagged = serde_json::from_str::<UntaggedRpcMessage<P>>(msg)?;
-    Ok(MaelstromMessage {
-        src: untagged.src,
-        dest: untagged.dest,
-        body: Body {
-            msg_id: untagged.body.msg_id,
-            in_reply_to: untagged.body.in_reply_to,
-            payload: match untagged.body.payload {
-                UntaggedResult::Ok(payload) => Ok(payload),
-                UntaggedResult::Err(err) => Err(err),
-            },
-        },
-    })
 }

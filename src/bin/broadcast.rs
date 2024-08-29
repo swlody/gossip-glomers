@@ -67,6 +67,7 @@ impl BroadcastHandler {
                 let mut timeout = Duration::from_millis(100);
                 loop {
                     // Send message and wait for response
+                    // TODO should retried messages have the same msg_id?
                     let res = node
                         .send_rpc(
                             &node_id(neighbor),
@@ -102,6 +103,13 @@ impl Handler<RequestPayload> for BroadcastHandler {
         &self,
         broadcast_msg: &MaelstromMessage<RequestPayload>,
     ) -> Result<(), MaelstromError> {
+        // TODO, efficiency: at some interval, send a gossip with set of seen messages
+        // ^ wouldn't need to retry on timeout, could just wait til next interval
+        // in fact, wouldn't need a confirmation message at all?
+
+        // Stats to beat:
+        // :stable-latencies {0 0, 0.5 469, 0.95 674, 0.99 747, 1 808}
+        // :msgs-per-op 153.39319
         match &broadcast_msg.body.payload {
             RequestPayload::Broadcast { message } => {
                 // Store message in local set

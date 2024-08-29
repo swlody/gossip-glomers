@@ -62,20 +62,15 @@ impl SeqKvClient {
             .await;
         match response {
             Ok(ResponsePayload::ReadOk { value }) => Ok(value),
-
-            // TODO is it possible to merge these branches?
-            Ok(_) => Err(GlomerError::Unsupported(
+            Err(
+                e @ GlomerError::Maelstrom(MaelstromError {
+                    code: error_type::KEY_DOES_NOT_EXIST,
+                    ..
+                }),
+            ) => Err(e),
+            _ => Err(GlomerError::Unsupported(
                 "Invalid response to read request".into(),
             )),
-            Err(GlomerError::Maelstrom(MaelstromError { code, .. }))
-                if code != error_type::KEY_DOES_NOT_EXIST =>
-            {
-                Err(GlomerError::Unsupported(
-                    "Invalid response to read request".into(),
-                ))
-            }
-
-            Err(e) => Err(e),
         }
     }
 
@@ -127,18 +122,15 @@ impl SeqKvClient {
             .await;
         match response {
             Ok(ResponsePayload::CompareAndSwapOk) => Ok(()),
-            Ok(_) => Err(GlomerError::Unsupported(
+            Err(e @ GlomerError::Maelstrom(MaelstromError { code, .. }))
+                if code == error_type::PRECONDITION_FAILED
+                    || code == error_type::KEY_DOES_NOT_EXIST =>
+            {
+                Err(e)
+            }
+            _ => Err(GlomerError::Unsupported(
                 "Invalid response to compare and swap request".into(),
             )),
-            Err(GlomerError::Maelstrom(MaelstromError { code, .. }))
-                if code != error_type::PRECONDITION_FAILED
-                    && code != error_type::KEY_DOES_NOT_EXIST =>
-            {
-                Err(GlomerError::Unsupported(
-                    "Invalid response to compare and swap request".into(),
-                ))
-            }
-            Err(e) => Err(e),
         }
     }
 }
