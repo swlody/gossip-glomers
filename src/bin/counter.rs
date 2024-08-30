@@ -37,6 +37,7 @@ impl Handler<RequestPayload> for CounterHandler {
                 loop {
                     let current_value = self.client.read_int("counter").await.unwrap_or(0);
                     let new_value = current_value + delta;
+                    // TODO we only care about eventual consistency, do we need to wait for response
                     let res = self
                         .client
                         .compare_and_swap(

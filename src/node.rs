@@ -199,8 +199,8 @@ impl Node {
     where
         P: Serialize + Debug,
     {
-        let msg_id = self.next_msg_id.fetch_add(1, Ordering::Relaxed);
-        self.fire_and_forget(Some(msg_id), None, dest.to_string(), &payload);
+        // Don't include a msg_id because we aren't expecting a response
+        self.fire_and_forget(None, None, dest.to_string(), &payload);
     }
 
     pub async fn send_rpc<P, R>(
