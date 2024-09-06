@@ -64,7 +64,6 @@ pub struct Node {
     // Out NodeId
     pub id: u32,
     // Monotonically increasing message id
-    pub node_ids: Vec<String>,
     pub next_msg_id: Arc<AtomicU64>,
     pub cancellation_token: CancellationToken,
     // Mapping from msg_id to channel on which to send response
@@ -79,7 +78,6 @@ impl Node {
             serde_json::from_str::<MaelstromMessage<Init>>(&buffer)?;
         let node = Self {
             id: parse_node_id(&init_msg.body.payload.node_id)?,
-            node_ids: init_msg.body.payload.node_ids.clone(),
             next_msg_id: Arc::new(0.into()),
             cancellation_token: CancellationToken::new(),
             response_map: Arc::new(Mutex::new(BTreeMap::new())),
